@@ -157,3 +157,4 @@ class OutputType:
     structure: list[str]
     instructions: list[str]
     categories: list[str]  # 비어 있으면 모든 출제 영역에서 사용 가능
+    count_applies_to: str = ""  # 비어 있으면 문항 수 설정이 전체 문항 수를 뜻한다

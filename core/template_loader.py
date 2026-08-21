@@ -402,6 +402,7 @@ class TemplateLoader:
                         for name in (item.get("categories") or [])
                         if str(name).strip()
                     ],
+                    count_applies_to=str(item.get("count_applies_to", "")).strip(),
                 )
             )
         if not result:

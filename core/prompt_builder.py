@@ -265,7 +265,9 @@ class PromptBuilder:
         lines.append(f"영역: {request.category}")
         lines.append(f"프롬프트 버전: {request.version}")
         if wants_questions:
-            lines.append(f"문항 수: {request.question_count}개")
+            scope = output_type.count_applies_to if output_type else ""
+            label = f"{scope} 문항 수" if scope else "문항 수"
+            lines.append(f"{label}: {request.question_count}개")
         lines.append(f"난이도: {request.difficulty}")
         lines.append(f"목표 수준: {difficulty_profile.target_band}")
         if wants_questions:
@@ -357,7 +359,7 @@ class PromptBuilder:
             )
 
         lines = self._bullet_block(
-            f"총 {request.question_count}개의 문항을 작성하라.",
+            *self._question_count_guidance(request, output_type),
             "각 문항은 번호를 붙여 구분하라.",
             *self._answer_layout_guidance(request.answer_layout),
             *self._question_style_guidance(request.question_style),
@@ -426,6 +428,25 @@ class PromptBuilder:
             ],
         }
         return mapping.get(question_style, ["문항 형식은 선택 설정에 맞게 작성하라."])
+
+    def _question_count_guidance(
+        self, request: PromptRequest, output_type: OutputType | None
+    ) -> list[str]:
+        """How the question-count setting should be read for this output type.
+
+        Some types spell out their own counts per section (서술형 12~15, 빈칸 15~20 …).
+        Saying "총 N개의 문항을 작성하라" there contradicts the structure section, and
+        because it lands at the very end of the prompt it is the instruction the model
+        actually follows — so the whole worksheet shrinks to N items.
+        """
+        scope = output_type.count_applies_to if output_type else ""
+        if not scope:
+            return [f"총 {request.question_count}개의 문항을 작성하라."]
+        return [
+            f"{scope} 문항은 {request.question_count}개 작성하라.",
+            f"이 개수는 {scope}에만 적용된다."
+            " 다른 형식의 문항 수는 '산출물 구성'에 적힌 개수를 그대로 따르고, 그 개수를 줄이지 마라.",
+        ]
 
     def _answer_layout_guidance(self, answer_layout: str) -> list[str]:
         """Where the explanations go relative to the questions.

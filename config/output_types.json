@@ -14,7 +14,8 @@
         "문항 부분과 해설 부분은 소제목이나 구분선으로 시각적으로 갈라 놓아라.",
         "결과는 교사가 바로 검토할 수 있는 문서처럼 정리하라."
       ],
-      "categories": []
+      "categories": [],
+      "count_applies_to": ""
     },
     {
       "id": "worksheet",
@@ -43,7 +44,8 @@
         "현대소설",
         "고전시가",
         "고전소설"
-      ]
+      ],
+      "count_applies_to": ""
     },
     {
       "id": "work_analysis",
@@ -72,7 +74,8 @@
         "현대소설",
         "고전시가",
         "고전소설"
-      ]
+      ],
+      "count_applies_to": ""
     },
     {
       "id": "grammar_notes",
@@ -96,7 +99,8 @@
       "categories": [
         "문법",
         "언어와 매체"
-      ]
+      ],
+      "count_applies_to": ""
     },
     {
       "id": "mock_exam",
@@ -115,7 +119,8 @@
         "문항과 해설은 구분선이나 '[해설]' 같은 표시로 시각적으로 갈라 놓아라.",
         "실제 시험지처럼 군더더기 없이 배치하라."
       ],
-      "categories": []
+      "categories": [],
+      "count_applies_to": ""
     },
     {
       "id": "reading_worksheet",
@@ -163,7 +168,8 @@
       "categories": [
         "독서",
         "화법과 작문"
-      ]
+      ],
+      "count_applies_to": "객관식"
     },
     {
       "id": "reading_analysis",
@@ -200,7 +206,8 @@
       "categories": [
         "독서",
         "화법과 작문"
-      ]
+      ],
+      "count_applies_to": ""
     },
     {
       "id": "reading_drills",
@@ -225,7 +232,8 @@
       "categories": [
         "독서",
         "화법과 작문"
-      ]
+      ],
+      "count_applies_to": "객관식"
     }
   ]
 }
