@@ -17,6 +17,7 @@ class PromptRequest:
     question_style: str
     set_style: str
     scoring_scheme: str
+    answer_layout: str = "문항 바로 뒤에 해설"
     exam_mode: str = "csat"
     output_type: str = "question_set"
     curriculum_context: str = ""

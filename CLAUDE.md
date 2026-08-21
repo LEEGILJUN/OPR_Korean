@@ -121,6 +121,12 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
 `_analysis_only_rules()`가 들어간다. common.txt는 전부 문항 설계를 전제로 쓰여 있어서
 걸러 쓰는 것보다 별도 기준을 두는 편이 정확하다.
 
+**산출물 유형은 배치 순서를 지시하면 안 된다.** 해설을 문항 뒤에 붙일지 맨 뒤에
+모을지는 사용자가 고르는 `answer_layout` 설정이 정한다 — 유형 쪽에도 순서를 박아
+두면 프롬프트 안에서 두 지시가 서로 부딪힌다. 유형은 *무엇을 담을지*만 정하고,
+배치는 `PromptBuilder._answer_layout_guidance()`가 담당한다. `common.txt`도
+"출력 형식에서 지시한 순서를 따르라"로만 말한다.
+
 새 산출물 유형을 추가할 때는 `config/output_types.json`에 항목만 넣으면 된다.
 코드 수정은 필요 없고, `tools/smoke_test.py`의 `check_output_types()`가 자동으로 검사한다.
 

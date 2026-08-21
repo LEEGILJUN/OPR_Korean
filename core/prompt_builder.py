@@ -359,13 +359,11 @@ class PromptBuilder:
         lines = self._bullet_block(
             f"총 {request.question_count}개의 문항을 작성하라.",
             "각 문항은 번호를 붙여 구분하라.",
-            "문항과 해설을 번갈아 배치하라. 1번 문항 → 1번 해설 → 2번 문항 → 2번 해설 순서다.",
-            "해설을 문서 끝에 몰아서 배치하지 마라. 각 문항 바로 아래에 그 문항의 해설이 와야 한다.",
+            *self._answer_layout_guidance(request.answer_layout),
             *self._question_style_guidance(request.question_style),
             *self._set_style_guidance(request.set_style),
             *self._scoring_scheme_guidance(request.scoring_scheme, request.question_count),
-            "각 문항마다 문제, 정답, 해설, 출제 의도를 포함하되, 이 넷을 한 덩어리로 묶어라.",
-            "문항과 해설의 경계는 '[해설]' 같은 표시나 구분선으로 분명히 드러내라.",
+            "각 문항마다 문제, 정답, 해설, 출제 의도를 빠짐없이 포함하라.",
             "오답 선지는 지문 근거를 바탕으로 설계하라.",
             f"전체 결과는 '{request.difficulty}' 난이도 기준에 맞게 조정하라.",
             f"'{request.difficulty}' 난이도는 {difficulty_profile.summary}",
@@ -417,6 +415,27 @@ class PromptBuilder:
             ],
         }
         return mapping.get(question_style, ["문항 형식은 선택 설정에 맞게 작성하라."])
+
+    def _answer_layout_guidance(self, answer_layout: str) -> list[str]:
+        """Where the explanations go relative to the questions.
+
+        This is a user choice, so no output type may hardcode an ordering —
+        otherwise the two instructions contradict each other in the prompt.
+        """
+        mapping = {
+            "문항 바로 뒤에 해설": [
+                "문항과 해설을 번갈아 배치하라. 1번 문항 → 1번 해설 → 2번 문항 → 2번 해설 순서다.",
+                "해설을 문서 끝에 몰아서 배치하지 마라. 각 문항 바로 아래에 그 문항의 해설이 와야 한다.",
+                "문제, 정답, 해설, 출제 의도를 한 덩어리로 묶고, 경계는 '[해설]' 같은 표시나 구분선으로 드러내라.",
+            ],
+            "해설은 맨 뒤에 모아서": [
+                "문항을 먼저 번호순으로 모두 제시하고, 해설은 그 뒤에 따로 모아라.",
+                "해설 부분은 '정답과 해설' 소제목으로 시작하고, 문항 번호를 붙여 순서대로 정리하라.",
+                "문항 부분에는 정답이나 해설이 드러나는 내용을 절대 섞지 마라."
+                " 학생이 문항 부분만 떼어 그대로 풀 수 있어야 한다.",
+            ],
+        }
+        return mapping.get(answer_layout, [])
 
     def _set_style_guidance(self, set_style: str) -> list[str]:
         mapping = {

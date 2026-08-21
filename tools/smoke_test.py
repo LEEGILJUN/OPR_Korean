@@ -123,6 +123,28 @@ def check_variation(loader: TemplateLoader) -> None:
         print(f"  3회차 {rounds[2]}")
 
 
+def _check_answer_layouts(builder: PromptBuilder, request: PromptRequest, output_type) -> None:
+    """Both layouts must be honoured, and neither may leak into the other.
+
+    Output types must stay layout-neutral — if one hardcodes an ordering, the
+    prompt ends up telling the model two contradictory things.
+    """
+    from dataclasses import replace
+
+    interleaved = builder.build(replace(request, answer_layout="문항 바로 뒤에 해설"), None)
+    assert "번갈아" in interleaved, f"교차 배치 지시 없음: {output_type.label}"
+    assert "몰아서 배치하지 마라" in interleaved, f"몰아쓰기 금지 지시 없음: {output_type.label}"
+
+    grouped = builder.build(replace(request, answer_layout="해설은 맨 뒤에 모아서"), None)
+    assert "해설은 그 뒤에 따로 모아라" in grouped, f"모아쓰기 지시 없음: {output_type.label}"
+    assert "번갈아" not in grouped, (
+        f"'모아서'를 골랐는데 교차 배치 지시가 남아 있습니다: {output_type.label}"
+    )
+    assert "몰아서 배치하지 마라" not in grouped, (
+        f"'모아서'와 충돌하는 지시가 남아 있습니다: {output_type.label}"
+    )
+
+
 def check_output_types(loader: TemplateLoader) -> None:
     """Every output type must build, and analysis-only ones must drop question talk."""
     builder = PromptBuilder(loader)
@@ -162,15 +184,7 @@ def check_output_types(loader: TemplateLoader) -> None:
 
         if output_type.includes_questions:
             assert "문항 구성 설계" in prompt, f"문항 배분 없음: {output_type.label}"
-            # 문항 → 해설 → 문항 → 해설 순서. 예전에는 해설을 끝에 모으라고 했다.
-            assert "번갈아" in prompt, f"문항·해설 교차 배치 지시 없음: {output_type.label}"
-            assert "몰아서 배치하지 마라" in prompt, (
-                f"해설 몰아쓰기 금지 지시 없음: {output_type.label}"
-            )
-            for stale in ("해설은 문항 뒤에 따로 모아라", "정답과 해설 — 문항 번호별로"):
-                assert stale not in prompt, (
-                    f"교차 배치와 충돌하는 옛 지시가 남아 있습니다: {output_type.label} / {stale}"
-                )
+            _check_answer_layouts(builder, request, output_type)
         else:
             assert "문항 구성 설계" not in prompt, (
                 f"해제 전용인데 문항 배분이 들어갔습니다: {output_type.label}"
@@ -179,7 +193,7 @@ def check_output_types(loader: TemplateLoader) -> None:
 
     print(f"  시험 모드 {len(modes)}개 (수능 {len(csat)}단계 / 내신 {len(school)}단계)")
     print(f"  산출물 유형 {len(loader.load_output_types())}개 모두 조립 성공")
-    print("  문항·해설 교차 배치 지시 확인")
+    print("  해설 배치 2종(문항 뒤 / 맨 뒤) 모두 충돌 없이 반영")
 
 
 def check_evaluation(loader: TemplateLoader) -> None:

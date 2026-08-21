@@ -92,6 +92,7 @@ class MainWindow(QMainWindow):
         "question_count": "한 번에 생성할 문항 수입니다.",
         "question_style": "문항 형식을 고릅니다. 객관식 5지선다는 수능 기본형에 가깝고, 4지선다·3지선다·서술형도 선택할 수 있습니다.",
         "set_style": "문항을 지문 세트형으로 묶을지, 독립 문항으로 낼지 정합니다.",
+        "answer_layout": "해설을 어디에 둘지 정합니다. '문항 바로 뒤에'는 검토하기 좋고, '맨 뒤에 모아서'는 학생에게 나눠 줄 시험지로 바로 쓸 수 있습니다.",
         "scoring_scheme": "배점 구조를 정합니다. 수능 국어는 일반적으로 2점·3점 혼합 배점을 사용합니다.",
         "passage": "문항 생성의 기준이 되는 지문입니다. 비워둘 수 없으며, 가장 중요한 입력입니다.",
         "example": "수능 국어에서 말하는 '보기'나 추가 제시문을 넣는 칸입니다. 작품 해설 자료, 비교 자료, 학생 반응, 도표 설명처럼 문항 설계에 함께 참고해야 하는 보조 자료를 입력합니다. 문항의 선택지를 넣는 칸은 아닙니다.",
@@ -436,6 +437,12 @@ class MainWindow(QMainWindow):
         self.scoring_scheme_combo.addItems(["수능형 2점·3점 혼합", "균등 배점", "고난도 3점 중심"])
         self.scoring_scheme_combo.setToolTip(self.FIELD_HELP_TEXTS["scoring_scheme"])
         grid.addWidget(self.scoring_scheme_combo, 3, 1)
+
+        grid.addWidget(self._make_field_label("해설 배치", self.FIELD_HELP_TEXTS["answer_layout"]), 4, 0)
+        self.answer_layout_combo = QComboBox()
+        self.answer_layout_combo.addItems(["문항 바로 뒤에 해설", "해설은 맨 뒤에 모아서"])
+        self.answer_layout_combo.setToolTip(self.FIELD_HELP_TEXTS["answer_layout"])
+        grid.addWidget(self.answer_layout_combo, 4, 1)
 
         grid.setColumnStretch(0, 2)
         grid.setColumnStretch(1, 3)
@@ -909,7 +916,8 @@ class MainWindow(QMainWindow):
             "question_count": self.question_count_spin.value(),
             "question_style": self.question_style_combo.currentText(),
             "set_style": self.set_style_combo.currentText(),
-            "scoring_scheme": self.scoring_scheme_combo.currentText(),
+            "answer_layout": "해설을 어디에 둘지 정합니다. '문항 바로 뒤에'는 검토하기 좋고, '맨 뒤에 모아서'는 학생에게 나눠 줄 시험지로 바로 쓸 수 있습니다.",
+        "scoring_scheme": self.scoring_scheme_combo.currentText(),
             "modules": self.module_group.selected_names(),
             "manual_types_enabled": self.manual_types_checkbox.isChecked(),
             "manual_types": self.question_type_picker.selected_names(),
@@ -950,6 +958,7 @@ class MainWindow(QMainWindow):
         self._set_combo_text(self.question_style_combo, str(session.get("question_style", "")))
         self._set_combo_text(self.set_style_combo, str(session.get("set_style", "")))
         self._set_combo_text(self.scoring_scheme_combo, str(session.get("scoring_scheme", "")))
+        self._set_combo_text(self.answer_layout_combo, str(session.get("answer_layout", "")))
 
         count = session.get("question_count")
         if isinstance(count, int):
@@ -1107,6 +1116,7 @@ class MainWindow(QMainWindow):
             self.question_style_combo,
             self.set_style_combo,
             self.scoring_scheme_combo,
+            self.answer_layout_combo,
             self.manual_types_checkbox,
         ):
             widget.setEnabled(wants_questions)
@@ -1376,6 +1386,7 @@ class MainWindow(QMainWindow):
         self.question_style_combo.setCurrentIndex(0)
         self.set_style_combo.setCurrentIndex(0)
         self.scoring_scheme_combo.setCurrentIndex(0)
+        self.answer_layout_combo.setCurrentIndex(0)
         self.passage_edit.clear()
         self.example_edit.clear()
         self.module_group.reset()
@@ -1668,6 +1679,7 @@ class MainWindow(QMainWindow):
             question_style=self.question_style_combo.currentText().strip(),
             set_style=self.set_style_combo.currentText().strip(),
             scoring_scheme=self.scoring_scheme_combo.currentText().strip(),
+            answer_layout=self.answer_layout_combo.currentText().strip(),
             exam_mode=self.exam_mode_combo.currentText().strip(),
             output_type=self.output_type_combo.currentText().strip(),
             curriculum_context=self.curriculum_edit.text().strip(),
@@ -1756,6 +1768,7 @@ class MainWindow(QMainWindow):
             f"문항 형식: {request.question_style}",
             f"출제 묶음: {request.set_style}",
             f"배점 구조: {request.scoring_scheme}",
+            f"해설 배치: {request.answer_layout}",
             f"평가 맥락: {request.exam_mode}",
             f"산출물 유형: {request.output_type}",
             *([f"교과 연계: {request.curriculum_context}"] if request.curriculum_context else []),
