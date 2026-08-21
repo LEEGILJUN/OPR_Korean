@@ -41,12 +41,14 @@ core/
                         + plan_variation()으로 문항 유형 배분과 회차 앵커 결정
   preset_loader.py      기본/사용자 프리셋 로딩·저장·숨김 처리
   evaluation_builder.py 되붙여 넣은 생성 결과 → 검증 프롬프트 (정답 제거 포함)
+  app_settings.py       로컬 UI 설정과 세션 복원 (테마·폰트·가이드 표시·마지막 입력)
   history_store.py      지문별 생성 이력(요청한 유형·앵커) 기록 → 회차 계산과 중복 회피
   file_utils.py         리소스 경로 해석, passage_fingerprint(), .txt/.md 내보내기 렌더링
 gui/
   main_window.py        전체 UI + 액션 (약 1000줄, 이 앱의 중심)
   widgets.py            ToastNotification, CollapsibleSection, ModuleCheckboxGroup 등 재사용 위젯
-  styles.py             COLORS 딕셔너리 + build_stylesheet() 로 만드는 단일 QSS
+  styles.py             LIGHT/DARK 팔레트, apply_theme(), build_stylesheet(font_scale)
+  guide_dialog.py       config/user_guide.json 을 렌더링하는 사용 안내 다이얼로그
 ```
 
 ### 프롬프트 조립 순서 (`PromptBuilder.build`)
@@ -79,6 +81,7 @@ gui/
 - 회차별 초점 앵커: `config/rotation_anchors.json` — 회차 % 개수로 순환
 - 기본 프리셋: `config/presets.json`
 - 검증 모드와 점검 항목: `config/evaluation_criteria.json`
+- 사용 안내(3단계 시나리오, FAQ, 단축키): `config/user_guide.json`
 - 출제영역별 시작 템플릿(사용자 정의 출제영역 추가 시 예시로 제공): `config/category_starter_templates.json`
   - 키 규칙이 `"<기본영역>-<세부유형>"` 이고, GUI가 `startswith(f"{base_category}-")` 로 필터링한다.
 
@@ -94,6 +97,12 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
 - 코드/주석/독스트링은 영어, UI 문자열은 한국어인 기존 스타일을 따른다.
 - 타입 힌트 사용, 파일 상단에 `from __future__ import annotations`.
 - 색상은 하드코딩하지 말고 `gui/styles.py`의 `COLORS`를 통해 쓴다.
+  `apply_theme()`이 `COLORS`를 제자리에서 교체하므로 `from .styles import COLORS`로
+  받아둔 참조는 자동으로 현재 테마를 가리킨다. 다만 **위젯 생성 시점에 인라인
+  스타일로 박아 넣은 색은 갱신되지 않는다** — 그런 위젯에는 `refresh_theme()`을 만들고
+  `MainWindow._apply_appearance()`에서 불러 준다.
+- QSS의 `font-size: Npx`는 빌드 시점에 `_scale_fonts()`가 배율을 적용한다.
+  새 규칙에도 px 단위를 쓰면 자동으로 따라간다.
 
 ## 문항 다양성 설계 (중복 방지)
 
@@ -142,6 +151,17 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
 정답 제거 로직을 건드리면 `tools/smoke_test.py`의 `check_evaluation()`이 누출을 잡는다.
 새로운 정답 표기 방식(`채점 기준:`처럼 키워드 뒤에 수식어가 붙는 형태)을 만나면
 `_ANSWER_KEYWORD`에 추가하라.
+
+## UI 구조
+
+화면은 워크플로 3단계를 그대로 반영한다. `StepIndicator`가 상단에 현재 단계를 표시하고,
+가운데 세로 스플리터가 `지문 입력 / 생성 결과 / 생성 결과 검증` 세 카드를 담는다.
+검증은 별개 단계이므로 지문 카드 안에 넣지 말 것 — 한 번 그렇게 만들었다가 발견성이
+나빠서 떼어냈다.
+
+`AppSettings`가 테마, 폰트 배율, 가이드 표시 여부, 마지막 세션을 한 파일에 모은다.
+새 UI 설정을 추가할 때는 `AppSettings.DEFAULTS`에 키를 넣어야 저장·복원 대상이 된다.
+(DEFAULTS에 없는 키는 로드 시 버려진다.)
 
 ## 알려진 상태 / 이어서 할 만한 것
 

@@ -69,6 +69,13 @@ PySide6 기반의 로컬 데스크톱 앱입니다. macOS와 Windows에서 모�
   - 블라인드 풀이: 정답·해설을 제거하고 직접 풀게 해 복수 정답과 모호성을 검출
   - 정밀 검토: 근거가 실제 지문에 있는지, 선지 설계가 적절한지 진단
   - 난이도 점검: 목표 등급에 실제로 맞는지 진단
+- 화면에 표시되는 3단계 워크플로 안내
+- 앱 안에서 볼 수 있는 사용 방법 (툴바 `사용 방법` 버튼 또는 F1, 첫 실행 시 자동 표시)
+- 문항 유형을 자동 배분하거나 직접 고르기
+- 마지막 작업 상태 복원 (앱을 닫아도 지문과 설정이 남음)
+- 저장한 `.txt` / `.md` 아카이브에서 지문과 설정 다시 불러오기
+- 지문 길이 표시와 문항 수 대비 부족 경고
+- 다크 모드와 글자 크기 조절 (80~150%)
 - 사용자 정의 프리셋 저장 및 삭제
 - 사용자 정의 출제영역 추가 및 삭제
   - 추가 시 `config/category_starter_templates.json`의 시작 템플릿을 예시로 제공
@@ -78,6 +85,7 @@ PySide6 기반의 로컬 데스크톱 앱입니다. macOS와 Windows에서 모�
   - Ctrl+S: .txt 저장
   - Ctrl+Shift+S: .md 저장
   - Ctrl+R: 초기화
+  - F1: 사용 방법 열기
 - 입력 검증 및 한국어 오류 메시지
 - 저장 파일에 메타데이터 포함
   - 제목
@@ -105,9 +113,11 @@ csat_prompt_generator/
 │  ├─ category_starter_templates.json
 │  ├─ question_types.json
 │  ├─ rotation_anchors.json
-│  └─ evaluation_criteria.json
+│  ├─ evaluation_criteria.json
+│  └─ user_guide.json
 ├─ core/
 │  ├─ __init__.py
+│  ├─ app_settings.py
 │  ├─ evaluation_builder.py
 │  ├─ file_utils.py
 │  ├─ history_store.py
@@ -117,6 +127,7 @@ csat_prompt_generator/
 │  └─ template_loader.py
 ├─ gui/
 │  ├─ __init__.py
+│  ├─ guide_dialog.py
 │  ├─ main_window.py
 │  ├─ styles.py
 │  └─ widgets.py
@@ -393,6 +404,7 @@ pyinstaller --noconfirm --windowed --name CSATPromptGenerator --add-data "templa
 - `user_presets.json` — 사용자가 만든 프리셋
 - `hidden_presets.json` — 숨긴 기본 프리셋
 - `user_categories.json` — 사용자가 추가한 출제영역
+- `app_settings.json` — 테마, 글자 크기, 사용 안내 표시 여부, 마지막 작업 상태
 - `generation_history.json` — 지문별 생성 이력 (회차 계산과 문항 중복 회피에 사용)
 
 생성 이력에는 지문 원문이 아니라 지문의 해시값과 그 회차에 요청한 문항 유형만 저장됩니다.
