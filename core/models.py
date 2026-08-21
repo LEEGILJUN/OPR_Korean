@@ -87,6 +87,7 @@ class VariationPlan:
     assigned_types: list[QuestionType]
     anchor: RotationAnchor
     excluded_types: list[str]
+    is_manual: bool = False
 
 
 @dataclass(slots=True)

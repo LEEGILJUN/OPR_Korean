@@ -302,3 +302,47 @@ class StepIndicator(QWidget):
 
     def current(self) -> int:
         return self._current
+
+
+# ---------------------------------------------------------------------------
+# Question type picker
+# ---------------------------------------------------------------------------
+class QuestionTypePicker(QWidget):
+    """Checkbox list of question types, rebuilt whenever the category changes."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.checkboxes: dict[str, QCheckBox] = {}
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(5)
+
+    def set_types(self, types: list[tuple[str, str]]) -> None:
+        """Replace the list, keeping any selection whose type still exists."""
+        previously_checked = set(self.selected_names())
+
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.checkboxes.clear()
+
+        for name, focus in types:
+            checkbox = QCheckBox(name)
+            checkbox.setToolTip(focus or name)
+            checkbox.setChecked(name in previously_checked)
+            self.checkboxes[name] = checkbox
+            self._layout.addWidget(checkbox)
+
+    def selected_names(self) -> list[str]:
+        return [name for name, cb in self.checkboxes.items() if cb.isChecked()]
+
+    def set_checked(self, names: list[str]) -> None:
+        for name, cb in self.checkboxes.items():
+            cb.setChecked(name in names)
+
+    def reset(self) -> None:
+        for cb in self.checkboxes.values():
+            cb.setChecked(False)

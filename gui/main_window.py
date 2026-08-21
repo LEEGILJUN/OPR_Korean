@@ -56,6 +56,7 @@ from .styles import build_stylesheet
 from .widgets import (
     CollapsibleSection,
     ModuleCheckboxGroup,
+    QuestionTypePicker,
     StepIndicator,
     ToastNotification,
     block_signals,
@@ -98,6 +99,7 @@ class MainWindow(QMainWindow):
         "round": "같은 지문으로 몇 번째 생성인지 보여 줍니다. 회차가 올라가면 이전 회차에서 쓰지 않은 문항 유형과 다른 지문 지점을 우선 겨냥하도록 프롬프트가 바뀝니다.",
         "reset_history": "이 지문의 생성 이력을 지웁니다. 지우면 다음 생성이 다시 1회차로 시작합니다.",
         "evaluation": "LLM이 만들어 준 문항을 여기에 그대로 붙여 넣으면, 그 문항이 잘 만들어졌는지 점검하는 '검증 프롬프트'를 만들어 줍니다. 그 프롬프트를 새 대화창에 붙여 넣어 실행하세요.",
+        "question_types": "문항마다 어떤 유형을 낼지 정합니다. 자동이면 앱이 서로 다른 유형을 배분하고, 같은 지문을 다시 쓸 때 지난 회차에 쓴 유형을 피합니다. 직접 고르면 선택한 유형만 사용합니다.",
         "evaluation_mode": "무엇을 점검할지 고릅니다. 블라인드 풀이는 정답을 지우고 직접 풀게 해 복수 정답을 잡아내고, 정밀 검토는 근거와 선지 설계를 진단하며, 난이도 점검은 목표 등급에 실제로 맞는지 봅니다.",
     }
 
@@ -360,6 +362,22 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(0, 2)
         grid.setColumnStretch(1, 3)
         ql.addLayout(grid)
+
+        self.manual_types_checkbox = QCheckBox("문항 유형 직접 고르기")
+        self.manual_types_checkbox.setToolTip(self.FIELD_HELP_TEXTS["question_types"])
+        self.manual_types_checkbox.toggled.connect(self._on_manual_types_toggled)
+        ql.addWidget(self.manual_types_checkbox)
+
+        self.question_type_hint = QLabel(
+            "자동: 문항마다 다른 유형을 배분하고, 회차가 바뀌면 지난 유형을 피합니다."
+        )
+        self.question_type_hint.setObjectName("sectionHint")
+        self.question_type_hint.setWordWrap(True)
+        ql.addWidget(self.question_type_hint)
+
+        self.question_type_picker = QuestionTypePicker()
+        self.question_type_picker.setVisible(False)
+        ql.addWidget(self.question_type_picker)
 
         content_layout.addWidget(q_section)
 
@@ -667,7 +685,9 @@ class MainWindow(QMainWindow):
 
         previous_runs = self.history_store.load_runs(request.passage, request.category)
         try:
-            variation = self.prompt_builder.plan_variation(request, previous_runs)
+            variation = self.prompt_builder.plan_variation(
+                request, previous_runs, self._selected_manual_types()
+            )
             final_prompt = self.prompt_builder.build(request, variation)
         except TemplateLoadError as exc:
             QMessageBox.warning(self, "템플릿 확인 필요", str(exc))
@@ -787,6 +807,37 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"검증 프롬프트 생성 완료  |  방식: {mode.label}  |  반드시 새 대화창에서 실행하세요."
         )
+
+    def _on_manual_types_toggled(self, checked: bool) -> None:
+        """Switch between automatic type assignment and a hand-picked list."""
+        self.question_type_picker.setVisible(checked)
+        if checked:
+            self._reload_question_types()
+            self.question_type_hint.setText(
+                "고른 유형만 사용합니다. 문항 수보다 적게 고르면 순서대로 반복됩니다."
+            )
+        else:
+            self.question_type_hint.setText(
+                "자동: 문항마다 다른 유형을 배분하고, 회차가 바뀌면 지난 유형을 피합니다."
+            )
+
+    def _reload_question_types(self) -> None:
+        """Refill the picker for the currently selected category."""
+        if not hasattr(self, "question_type_picker"):
+            return
+        try:
+            types = self.template_loader.load_question_types(self.category_combo.currentText())
+        except TemplateLoadError:
+            types = []
+        self.question_type_picker.set_types([(qt.name, qt.focus) for qt in types])
+
+    def _selected_manual_types(self) -> list[str] | None:
+        """Return hand-picked type names, or None when running in automatic mode."""
+        if not getattr(self, "manual_types_checkbox", None):
+            return None
+        if not self.manual_types_checkbox.isChecked():
+            return None
+        return self.question_type_picker.selected_names() or None
 
     def _update_evaluation_description(self, mode_label: str) -> None:
         if not hasattr(self, "evaluation_description_label"):
@@ -1033,6 +1084,8 @@ class MainWindow(QMainWindow):
         self.passage_edit.clear()
         self.example_edit.clear()
         self.module_group.reset()
+        self.manual_types_checkbox.setChecked(False)
+        self.question_type_picker.reset()
         self.evaluation_input_edit.clear()
         self._clear_generated_output()
         self._refresh_round_indicator()
@@ -1213,6 +1266,7 @@ class MainWindow(QMainWindow):
 
     def _update_category_actions(self, category_name: str) -> None:
         self._refresh_round_indicator()
+        self._reload_question_types()
         is_user = self.template_loader.is_user_category(category_name.strip())
         self.delete_category_button.setEnabled(is_user)
 

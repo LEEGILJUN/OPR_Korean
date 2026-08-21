@@ -42,12 +42,16 @@ class PromptBuilder:
         self,
         request: PromptRequest,
         previous_runs: list[GenerationRun] | None = None,
+        manual_types: list[str] | None = None,
     ) -> VariationPlan | None:
         """Decide which question types and passage anchor this round should use.
 
         Types already spent on this passage are pushed to the back of the queue, so
         repeated runs on the same passage keep landing on fresh ground. Returns None
         when no type list is configured, which leaves the prompt unchanged.
+
+        `manual_types` overrides the automatic assignment — the user picked the types
+        by hand, so their choice wins over freshness ordering.
         """
         available = self.template_loader.load_question_types(request.category)
         if not available:
@@ -55,8 +59,16 @@ class PromptBuilder:
 
         runs = previous_runs or []
         round_number = len(runs) + 1
-        ordered = self._order_types_by_freshness(available, runs, request.passage)
-        assigned = self._take_cycling(ordered, request.question_count)
+
+        if manual_types:
+            chosen = [qt for name in manual_types for qt in available if qt.name == name]
+            assigned = self._take_cycling(chosen, request.question_count)
+        else:
+            ordered = self._order_types_by_freshness(available, runs, request.passage)
+            assigned = self._take_cycling(ordered, request.question_count)
+
+        if not assigned:
+            return None
 
         anchors = self.template_loader.load_rotation_anchors()
         anchor = (
@@ -77,6 +89,7 @@ class PromptBuilder:
             assigned_types=assigned,
             anchor=anchor,
             excluded_types=excluded,
+            is_manual=bool(manual_types),
         )
 
     def _order_types_by_freshness(
@@ -144,17 +157,20 @@ class PromptBuilder:
         )
 
         if variation.round_number > 1:
-            excluded_line = (
-                "\n- 이미 다룬 유형: " + ", ".join(variation.excluded_types)
-                if variation.excluded_types
-                else ""
-            )
-            blocks.append(
-                f"[중복 회피] 이 지문으로 문항을 만드는 것은 이번이 {variation.round_number}회차다."
-                "\n- 이전 회차와 같은 근거 문장, 같은 핵심 어휘, 같은 선지 구조를 반복하지 마라."
-                "\n- 이전 회차에서 다루지 않은 지점을 우선 겨냥하라."
-                + excluded_line
-            )
+            lines = [
+                f"[중복 회피] 이 지문으로 문항을 만드는 것은 이번이 {variation.round_number}회차다.",
+                "- 이전 회차와 같은 근거 문장, 같은 핵심 어휘, 같은 선지 구조를 반복하지 마라.",
+            ]
+            if variation.is_manual:
+                # The user picked the types on purpose, so only the ground must move.
+                lines.append(
+                    "- 문항 유형은 위 배분을 그대로 지키되, 지문에서 겨냥하는 지점은 이전 회차와 다르게 잡아라."
+                )
+            else:
+                lines.append("- 이전 회차에서 다루지 않은 지점을 우선 겨냥하라.")
+                if variation.excluded_types:
+                    lines.append("- 이미 다룬 유형: " + ", ".join(variation.excluded_types))
+            blocks.append("\n".join(lines))
 
         return self._section("문항 구성 설계", blocks)
 
