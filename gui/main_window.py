@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._setup_shortcuts()
-        QTimer.singleShot(0, self._maybe_show_guide_on_startup)
+        QTimer.singleShot(0, self._on_startup)
 
     # ===================================================================
     # UI CONSTRUCTION
@@ -738,11 +738,87 @@ class MainWindow(QMainWindow):
         if first_run and dialog.dismissed_forever():
             self.app_settings.set("guide_seen", True)
 
+    def _on_startup(self) -> None:
+        """Restore the previous session, then show the guide on first launch."""
+        self._restore_session()
+        self._maybe_show_guide_on_startup()
+
     def _maybe_show_guide_on_startup(self) -> None:
         """Show the walkthrough the first time this user opens the app."""
         if self.app_settings.get("guide_seen"):
             return
         self.show_user_guide(first_run=True)
+
+    # -------------------------------------------------------------------
+    # Session restore
+    # -------------------------------------------------------------------
+
+    def _capture_session(self) -> dict:
+        """Snapshot the current inputs so the next launch can restore them."""
+        return {
+            "passage": self.passage_edit.toPlainText(),
+            "example": self.example_edit.toPlainText(),
+            "category": self.category_combo.currentText(),
+            "version": self.version_combo.currentText(),
+            "difficulty": self.difficulty_combo.currentText(),
+            "question_count": self.question_count_spin.value(),
+            "question_style": self.question_style_combo.currentText(),
+            "set_style": self.set_style_combo.currentText(),
+            "scoring_scheme": self.scoring_scheme_combo.currentText(),
+            "modules": self.module_group.selected_names(),
+            "manual_types_enabled": self.manual_types_checkbox.isChecked(),
+            "manual_types": self.question_type_picker.selected_names(),
+        }
+
+    def _save_session(self) -> None:
+        session = self._capture_session()
+        # An empty passage means nothing worth restoring.
+        if not session["passage"].strip():
+            self.app_settings.set("last_session", None)
+            return
+        self.app_settings.set("last_session", session)
+
+    def _restore_session(self) -> None:
+        """Put back the last session's inputs, skipping anything no longer valid."""
+        session = self.app_settings.get("last_session")
+        if not isinstance(session, dict):
+            return
+        passage = str(session.get("passage", ""))
+        if not passage.strip():
+            return
+
+        self.passage_edit.setPlainText(passage)
+        self.example_edit.setPlainText(str(session.get("example", "")))
+
+        # Combo values may have disappeared (a user category was deleted, say),
+        # so set each only when the entry still exists.
+        self._set_combo_text(self.category_combo, str(session.get("category", "")))
+        self._set_combo_text(self.version_combo, str(session.get("version", "")))
+        self._set_combo_text(self.difficulty_combo, str(session.get("difficulty", "")))
+        self._set_combo_text(self.question_style_combo, str(session.get("question_style", "")))
+        self._set_combo_text(self.set_style_combo, str(session.get("set_style", "")))
+        self._set_combo_text(self.scoring_scheme_combo, str(session.get("scoring_scheme", "")))
+
+        count = session.get("question_count")
+        if isinstance(count, int):
+            self.question_count_spin.setValue(count)
+
+        modules = session.get("modules")
+        if isinstance(modules, list):
+            self.module_group.set_checked([str(name) for name in modules])
+
+        if session.get("manual_types_enabled"):
+            self.manual_types_checkbox.setChecked(True)
+            manual_types = session.get("manual_types")
+            if isinstance(manual_types, list):
+                self.question_type_picker.set_checked([str(name) for name in manual_types])
+
+        self._refresh_round_indicator()
+        self._toast("마지막 작업을 불러왔습니다.", "info")
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        self._save_session()
+        super().closeEvent(event)
 
     def _set_workflow_step(self, index: int) -> None:
         if hasattr(self, "step_indicator"):
@@ -1089,6 +1165,7 @@ class MainWindow(QMainWindow):
         self.evaluation_input_edit.clear()
         self._clear_generated_output()
         self._refresh_round_indicator()
+        self.app_settings.set("last_session", None)
         self._toast("모든 입력을 초기화했습니다.", "info")
 
     # ===================================================================
