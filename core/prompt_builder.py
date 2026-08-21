@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from .models import DifficultyProfile, PromptRequest
+from .file_utils import passage_fingerprint
+from .models import (
+    DifficultyProfile,
+    GenerationRun,
+    PromptRequest,
+    QuestionType,
+    RotationAnchor,
+    VariationPlan,
+)
 from .template_loader import TemplateLoader
 
 
@@ -10,7 +18,7 @@ class PromptBuilder:
     def __init__(self, template_loader: TemplateLoader | None = None) -> None:
         self.template_loader = template_loader or TemplateLoader()
 
-    def build(self, request: PromptRequest) -> str:
+    def build(self, request: PromptRequest, variation: VariationPlan | None = None) -> str:
         common_template = self.template_loader.load_common_template()
         category_template = self.template_loader.load_category_template(request.category)
         version_template = self._load_version_template(request.version)
@@ -21,6 +29,7 @@ class PromptBuilder:
             self._build_goal_section(request, difficulty_profile),
             self._build_common_rules_section(common_template, version_template, difficulty_profile),
             self._build_category_section(request.category, category_template),
+            self._build_variation_section(variation),
             self._build_modules_section(module_templates),
             self._build_passage_section(request.passage),
             self._build_example_section(request.example_text),
@@ -28,6 +37,126 @@ class PromptBuilder:
         ]
 
         return self._join_sections(sections)
+
+    def plan_variation(
+        self,
+        request: PromptRequest,
+        previous_runs: list[GenerationRun] | None = None,
+    ) -> VariationPlan | None:
+        """Decide which question types and passage anchor this round should use.
+
+        Types already spent on this passage are pushed to the back of the queue, so
+        repeated runs on the same passage keep landing on fresh ground. Returns None
+        when no type list is configured, which leaves the prompt unchanged.
+        """
+        available = self.template_loader.load_question_types(request.category)
+        if not available:
+            return None
+
+        runs = previous_runs or []
+        round_number = len(runs) + 1
+        ordered = self._order_types_by_freshness(available, runs, request.passage)
+        assigned = self._take_cycling(ordered, request.question_count)
+
+        anchors = self.template_loader.load_rotation_anchors()
+        anchor = (
+            anchors[(round_number - 1) % len(anchors)]
+            if anchors
+            else RotationAnchor(label="전체 균형", instruction="지문 전체를 고르게 훑어라.")
+        )
+
+        assigned_names = {qt.name for qt in assigned}
+        excluded = [
+            name
+            for name in self._recent_type_names(runs)
+            if name not in assigned_names
+        ]
+
+        return VariationPlan(
+            round_number=round_number,
+            assigned_types=assigned,
+            anchor=anchor,
+            excluded_types=excluded,
+        )
+
+    def _order_types_by_freshness(
+        self,
+        available: list[QuestionType],
+        runs: list[GenerationRun],
+        passage: str,
+    ) -> list[QuestionType]:
+        """Sort types so never-used come first, then least-recently-used."""
+        # Offset by passage so two different passages in the same category do not
+        # both open with the first type on the list.
+        offset = int(passage_fingerprint(passage)[:4], 16) % len(available)
+        rotated = available[offset:] + available[:offset]
+
+        last_used: dict[str, int] = {}
+        for index, run in enumerate(runs):
+            for name in run.question_types:
+                last_used[name] = index
+
+        # Stable sort: unused types keep their rotated order, used ones trail behind
+        # ordered by how long ago they were used.
+        return sorted(rotated, key=lambda qt: last_used.get(qt.name, -1))
+
+    def _take_cycling(self, ordered: list[QuestionType], count: int) -> list[QuestionType]:
+        """Take `count` types, wrapping around only when the list is exhausted."""
+        if count <= 0 or not ordered:
+            return []
+        result: list[QuestionType] = []
+        while len(result) < count:
+            remaining = count - len(result)
+            result.extend(ordered[:remaining])
+        return result
+
+    def _recent_type_names(self, runs: list[GenerationRun], limit: int = 12) -> list[str]:
+        """Return distinct type names used in past runs, most recent first."""
+        seen: list[str] = []
+        for run in reversed(runs):
+            for name in run.question_types:
+                if name not in seen:
+                    seen.append(name)
+                if len(seen) >= limit:
+                    return seen
+        return seen
+
+    def _build_variation_section(self, variation: VariationPlan | None) -> str | None:
+        if variation is None:
+            return None
+
+        blocks: list[str] = []
+
+        assignment_lines = [
+            f"{index}번 문항 — {qt.name}"
+            + (f" (평가 대상: {qt.focus})" if qt.focus else "")
+            for index, qt in enumerate(variation.assigned_types, start=1)
+        ]
+        blocks.append(
+            "[문항 유형 배분]\n"
+            + "\n".join(f"- {line}" for line in assignment_lines)
+            + "\n- 위 배분을 반드시 지켜라. 배정된 유형과 다른 유형의 문항으로 대체하지 마라."
+            + "\n- 서로 다른 번호의 문항이 사실상 같은 것을 묻고 있다면, 배분을 지키지 못한 것이다."
+        )
+
+        blocks.append(
+            f"[이번 회차 초점] {variation.anchor.label}\n- {variation.anchor.instruction}"
+        )
+
+        if variation.round_number > 1:
+            excluded_line = (
+                "\n- 이미 다룬 유형: " + ", ".join(variation.excluded_types)
+                if variation.excluded_types
+                else ""
+            )
+            blocks.append(
+                f"[중복 회피] 이 지문으로 문항을 만드는 것은 이번이 {variation.round_number}회차다."
+                "\n- 이전 회차와 같은 근거 문장, 같은 핵심 어휘, 같은 선지 구조를 반복하지 마라."
+                "\n- 이전 회차에서 다루지 않은 지점을 우선 겨냥하라."
+                + excluded_line
+            )
+
+        return self._section("문항 구성 설계", blocks)
 
     def _load_version_template(self, version_name: str) -> str:
         if not version_name.strip():

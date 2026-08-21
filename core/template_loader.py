@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from .file_utils import config_root, templates_root, user_data_root
-from .models import DifficultyProfile
+from .models import DifficultyProfile, QuestionType, RotationAnchor
 
 
 class TemplateLoadError(RuntimeError):
@@ -72,6 +72,8 @@ class TemplateLoader:
         self.user_categories_path = user_data_root() / "user_categories.json"
         self.difficulty_profiles_path = config_root() / "difficulty_profiles.json"
         self.category_starters_path = config_root() / "category_starter_templates.json"
+        self.question_types_path = config_root() / "question_types.json"
+        self.rotation_anchors_path = config_root() / "rotation_anchors.json"
 
     def category_names(self) -> list[str]:
         names = list(self.categories.keys())
@@ -185,6 +187,75 @@ class TemplateLoader:
             if name and template_text:
                 result[name] = template_text
         return result
+
+    def load_question_types(self, category_name: str) -> list[QuestionType]:
+        """Return the question types available for a category.
+
+        User-defined categories have no dedicated list, so they fall back to the
+        generic set. A missing config file falls back to an empty list, which
+        simply disables type assignment rather than breaking generation.
+        """
+        payload = self._read_json(self.question_types_path, "문항 유형 설정 파일")
+        if payload is None:
+            return []
+
+        types_by_category = payload.get("types", {})
+        if not isinstance(types_by_category, dict):
+            raise TemplateLoadError(
+                f"문항 유형 설정 형식이 올바르지 않습니다.\n경로: {self.question_types_path}"
+            )
+
+        raw_types = types_by_category.get(category_name)
+        if not isinstance(raw_types, list) or not raw_types:
+            raw_types = payload.get("default", [])
+        if not isinstance(raw_types, list):
+            return []
+
+        result: list[QuestionType] = []
+        for item in raw_types:
+            if not isinstance(item, dict):
+                raise TemplateLoadError("문항 유형 항목 형식이 올바르지 않습니다.")
+            name = str(item.get("name", "")).strip()
+            focus = str(item.get("focus", "")).strip()
+            if name:
+                result.append(QuestionType(name=name, focus=focus))
+        return result
+
+    def load_rotation_anchors(self) -> list[RotationAnchor]:
+        """Return the per-round anchors that shift passage coverage between runs."""
+        payload = self._read_json(self.rotation_anchors_path, "회차 앵커 설정 파일")
+        if payload is None:
+            return []
+
+        anchors = payload.get("anchors", [])
+        if not isinstance(anchors, list):
+            raise TemplateLoadError(
+                f"회차 앵커 설정 형식이 올바르지 않습니다.\n경로: {self.rotation_anchors_path}"
+            )
+
+        result: list[RotationAnchor] = []
+        for item in anchors:
+            if not isinstance(item, dict):
+                raise TemplateLoadError("회차 앵커 항목 형식이 올바르지 않습니다.")
+            label = str(item.get("label", "")).strip()
+            instruction = str(item.get("instruction", "")).strip()
+            if label and instruction:
+                result.append(RotationAnchor(label=label, instruction=instruction))
+        return result
+
+    def _read_json(self, path: Path, label: str) -> dict | None:
+        """Read an optional JSON config. Returns None when the file is absent."""
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise TemplateLoadError(
+                f"{label} 형식이 올바르지 않습니다.\n경로: {path}\n오류: {exc}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise TemplateLoadError(f"{label} 형식이 올바르지 않습니다.\n경로: {path}")
+        return payload
 
     def add_user_category(self, name: str, template_text: str) -> None:
         normalized_name = name.strip()

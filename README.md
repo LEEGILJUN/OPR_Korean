@@ -59,6 +59,11 @@ PySide6 기반의 로컬 데스크톱 앱입니다. macOS와 Windows에서 모�
   - 고전시가 보기중심형
   - 고전소설 구조분석형
   - 문법 개념적용형
+- 문항 중복 방지 (같은 지문을 여러 번 써도 비슷한 문항이 반복되지 않도록)
+  - 문항마다 서로 다른 출제 유형을 강제 배분
+  - 회차마다 지문의 다른 지점을 겨냥하도록 초점 이동
+  - 같은 지문의 생성 이력을 기억해 이전 회차에서 쓴 유형을 피함
+  - 한 문항 안의 오답 선지에 서로 다른 오류 유형을 배분
 - 사용자 정의 프리셋 저장 및 삭제
 - 사용자 정의 출제영역 추가 및 삭제
   - 추가 시 `config/category_starter_templates.json`의 시작 템플릿을 예시로 제공
@@ -92,10 +97,13 @@ csat_prompt_generator/
 ├─ config/
 │  ├─ presets.json
 │  ├─ difficulty_profiles.json
-│  └─ category_starter_templates.json
+│  ├─ category_starter_templates.json
+│  ├─ question_types.json
+│  └─ rotation_anchors.json
 ├─ core/
 │  ├─ __init__.py
 │  ├─ file_utils.py
+│  ├─ history_store.py
 │  ├─ models.py
 │  ├─ preset_loader.py
 │  ├─ prompt_builder.py
@@ -235,6 +243,26 @@ GUI를 띄우지 않고 템플릿 로딩, 프리셋 로딩, 프롬프트 조립,
 
 프리셋 적용 후에도 사용자가 화면에서 자유롭게 다시 수정할 수 있습니다.
 
+### 문항 유형 수정
+
+문항마다 배분되는 출제 유형은 아래 파일에서 관리합니다.
+
+- `config/question_types.json`
+
+`types` 아래에 영역 이름별로 유형 목록을 둡니다. 목록이 없는 영역(사용자 정의 출제영역 등)은
+`default` 목록을 사용합니다. 각 항목은 `name`(유형 이름)과 `focus`(무엇을 평가하는지)로 이루어집니다.
+
+문항 수보다 유형이 많으면 회차가 바뀔 때마다 아직 안 쓴 유형이 먼저 배정됩니다.
+**유형을 넉넉히 넣어 둘수록 같은 지문을 여러 번 써도 중복이 덜 생깁니다.**
+
+### 회차 초점 수정
+
+같은 지문을 반복해서 쓸 때 회차마다 지문의 어느 지점을 겨냥할지는 아래 파일에서 관리합니다.
+
+- `config/rotation_anchors.json`
+
+목록 순서대로 순환하며 적용됩니다.
+
 ### 난이도 수정
 
 등급별 목표 수준과 지침은 아래 파일에서 관리합니다.
@@ -326,7 +354,15 @@ pyinstaller --noconfirm --windowed --name CSATPromptGenerator --add-data "templa
 - Windows: `%APPDATA%\CSATPromptGenerator\`
 - Linux: `~/.local/share/CSATPromptGenerator/`
 
-저장되는 파일은 `user_presets.json`, `hidden_presets.json`, `user_categories.json` 입니다.
+저장되는 파일은 다음과 같습니다.
+
+- `user_presets.json` — 사용자가 만든 프리셋
+- `hidden_presets.json` — 숨긴 기본 프리셋
+- `user_categories.json` — 사용자가 추가한 출제영역
+- `generation_history.json` — 지문별 생성 이력 (회차 계산과 문항 중복 회피에 사용)
+
+생성 이력에는 지문 원문이 아니라 지문의 해시값과 그 회차에 요청한 문항 유형만 저장됩니다.
+지문 입력란 위의 `이력 초기화` 버튼으로 해당 지문의 이력을 지우면 다음 생성이 다시 1회차로 시작합니다.
 
 ## 현재 requirements.txt
 

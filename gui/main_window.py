@@ -37,7 +37,8 @@ from core.file_utils import (
     ensure_file_extension,
     save_text_file,
 )
-from core.models import PromptExportData, PromptPreset, PromptRequest
+from core.history_store import GenerationHistoryStore, HistoryStoreError
+from core.models import PromptExportData, PromptPreset, PromptRequest, VariationPlan
 from core.preset_loader import PresetLoadError, PresetLoader, PresetSaveError
 from core.prompt_builder import PromptBuilder
 from core.template_loader import CategorySaveError, TemplateLoadError, TemplateLoader
@@ -84,6 +85,8 @@ class MainWindow(QMainWindow):
         "save_md": "생성된 프롬프트와 메타데이터를 Markdown 파일로 저장합니다.",
         "add_category": "현재 앱에 없는 새로운 출제영역을 추가합니다.",
         "delete_category": "선택한 사용자 정의 출제영역을 삭제합니다. 기본 제공 출제영역은 삭제할 수 없습니다.",
+        "round": "같은 지문으로 몇 번째 생성인지 보여 줍니다. 회차가 올라가면 이전 회차에서 쓰지 않은 문항 유형과 다른 지문 지점을 우선 겨냥하도록 프롬프트가 바뀝니다.",
+        "reset_history": "이 지문의 생성 이력을 지웁니다. 지우면 다음 생성이 다시 1회차로 시작합니다.",
     }
 
     MODULE_HELP_TEXTS = {
@@ -105,10 +108,12 @@ class MainWindow(QMainWindow):
         self.template_loader = TemplateLoader()
         self.preset_loader = PresetLoader()
         self.prompt_builder = PromptBuilder(self.template_loader)
+        self.history_store = GenerationHistoryStore()
         self.presets_by_label: dict[str, PromptPreset] = {}
         self.preset_load_error_message: str = ""
         self.last_generated_request: PromptRequest | None = None
         self.last_generated_prompt: str = ""
+        self.last_variation_plan: VariationPlan | None = None
         self._preview_timer: QTimer | None = None
 
         self._build_ui()
@@ -399,6 +404,19 @@ class MainWindow(QMainWindow):
         hint = QLabel("문항의 기준이 되는 지문을 입력하세요. 가장 중요한 입력입니다.")
         hint.setObjectName("sectionHint")
         header.addWidget(hint)
+
+        self.round_label = QLabel("")
+        self.round_label.setObjectName("sectionHint")
+        self.round_label.setToolTip(self.FIELD_HELP_TEXTS["round"])
+        header.addWidget(self.round_label)
+
+        self.reset_history_button = QPushButton("이력 초기화")
+        self.reset_history_button.setObjectName("iconButton")
+        self.reset_history_button.setToolTip(self.FIELD_HELP_TEXTS["reset_history"])
+        self.reset_history_button.clicked.connect(self.reset_passage_history)
+        self.reset_history_button.setVisible(False)
+        header.addWidget(self.reset_history_button)
+
         layout.addLayout(header)
 
         # Passage
@@ -541,8 +559,10 @@ class MainWindow(QMainWindow):
         if request is None:
             return
 
+        previous_runs = self.history_store.load_runs(request.passage, request.category)
         try:
-            final_prompt = self.prompt_builder.build(request)
+            variation = self.prompt_builder.plan_variation(request, previous_runs)
+            final_prompt = self.prompt_builder.build(request, variation)
         except TemplateLoadError as exc:
             QMessageBox.warning(self, "템플릿 확인 필요", str(exc))
             self._toast("템플릿을 불러오지 못했습니다.", "error")
@@ -556,13 +576,18 @@ class MainWindow(QMainWindow):
             self._toast("예상치 못한 오류가 발생했습니다.", "error")
             return
 
+        if variation is not None:
+            self.history_store.record(request, variation)
+
         self.output_edit.setPlainText(final_prompt)
         self.last_generated_request = request
         self.last_generated_prompt = final_prompt
+        self.last_variation_plan = variation
         self._set_output_buttons_enabled(True)
         self._update_token_count(final_prompt)
-        self._toast("프롬프트 생성이 완료되었습니다!", "success")
-        self.statusBar().showMessage("프롬프트 생성 완료")
+        self._toast(self._variation_toast_message(variation), "success")
+        self.statusBar().showMessage(self._variation_status_message(variation))
+        self._refresh_round_indicator()
 
     def apply_selected_preset(self) -> None:
         preset_label = self.preset_combo.currentText().strip()
@@ -791,11 +816,59 @@ class MainWindow(QMainWindow):
         self.example_edit.clear()
         self.module_group.reset()
         self._clear_generated_output()
+        self._refresh_round_indicator()
         self._toast("모든 입력을 초기화했습니다.", "info")
 
     # ===================================================================
     # INTERNAL HELPERS
     # ===================================================================
+
+    def _variation_toast_message(self, variation: VariationPlan | None) -> str:
+        if variation is None:
+            return "프롬프트 생성이 완료되었습니다!"
+        if variation.round_number == 1:
+            return "프롬프트 생성이 완료되었습니다!"
+        return f"{variation.round_number}회차 생성 완료 — 이전 회차와 다른 유형으로 구성했습니다."
+
+    def _variation_status_message(self, variation: VariationPlan | None) -> str:
+        if variation is None:
+            return "프롬프트 생성 완료"
+        type_names = ", ".join(qt.name for qt in variation.assigned_types)
+        return (
+            f"프롬프트 생성 완료  |  {variation.round_number}회차"
+            f"  |  초점: {variation.anchor.label}  |  문항 유형: {type_names}"
+        )
+
+    def reset_passage_history(self) -> None:
+        """Forget this passage's generation history so numbering restarts at 1."""
+        passage = self.passage_edit.toPlainText().strip()
+        if not passage:
+            self._toast("지문을 먼저 입력해 주세요.", "error")
+            return
+
+        round_number = self.history_store.round_number(passage, self.category_combo.currentText())
+        if round_number <= 1:
+            self._toast("이 지문에는 아직 생성 이력이 없습니다.", "info")
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "생성 이력 초기화",
+            f"이 지문의 생성 이력({round_number - 1}회)을 지울까요?\n"
+            "지우면 다음 생성이 다시 1회차로 시작합니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.history_store.clear_passage(passage)
+        except HistoryStoreError as exc:
+            QMessageBox.warning(self, "이력 초기화 실패", str(exc))
+            return
+        self._toast("이 지문의 생성 이력을 지웠습니다.", "info")
+        self._refresh_round_indicator()
 
     def _toast(self, message: str, kind: str = "info") -> None:
         toast = ToastNotification(self, message, kind=kind)
@@ -832,10 +905,32 @@ class MainWindow(QMainWindow):
         return container
 
     def _schedule_preview_update(self) -> None:
-        """Debounced live preview — not yet fully wired (placeholder for future)."""
-        # This resets any pending preview timer so rapid typing doesn't
-        # trigger excessive rebuilds.
-        pass
+        """Debounce passage edits so the round indicator does not refresh per keystroke."""
+        if self._preview_timer is None:
+            self._preview_timer = QTimer(self)
+            self._preview_timer.setSingleShot(True)
+            self._preview_timer.setInterval(400)
+            self._preview_timer.timeout.connect(self._refresh_round_indicator)
+        self._preview_timer.start()
+
+    def _refresh_round_indicator(self) -> None:
+        """Show how many times this passage has already been generated."""
+        if not hasattr(self, "round_label") or not hasattr(self, "passage_edit"):
+            return  # Category signals can fire before the passage widgets exist.
+        passage = self.passage_edit.toPlainText().strip()
+        if not passage:
+            self.round_label.setText("")
+            self.reset_history_button.setVisible(False)
+            return
+
+        round_number = self.history_store.round_number(passage, self.category_combo.currentText())
+        if round_number <= 1:
+            self.round_label.setText("")
+            self.reset_history_button.setVisible(False)
+            return
+
+        self.round_label.setText(f"이 지문 {round_number - 1}회 생성됨 — 다음은 {round_number}회차")
+        self.reset_history_button.setVisible(True)
 
     def _update_token_count(self, text: str) -> None:
         char_count = len(text)
@@ -898,6 +993,7 @@ class MainWindow(QMainWindow):
         self.preset_description_label.setText(f"[{source}] {preset.description}")
 
     def _update_category_actions(self, category_name: str) -> None:
+        self._refresh_round_indicator()
         is_user = self.template_loader.is_user_category(category_name.strip())
         self.delete_category_button.setEnabled(is_user)
 
@@ -1006,6 +1102,7 @@ class MainWindow(QMainWindow):
         self.output_edit.clear()
         self.last_generated_request = None
         self.last_generated_prompt = ""
+        self.last_variation_plan = None
         self.token_label.setText("")
         self._set_output_buttons_enabled(False)
 
@@ -1018,6 +1115,13 @@ class MainWindow(QMainWindow):
             f"배점 구조: {request.scoring_scheme}",
             *request.selected_modules,
         ]
+        if self.last_variation_plan is not None:
+            plan = self.last_variation_plan
+            selected_options.append(f"생성 회차: {plan.round_number}회차")
+            selected_options.append(f"회차 초점: {plan.anchor.label}")
+            selected_options.append(
+                "문항 유형: " + ", ".join(qt.name for qt in plan.assigned_types)
+            )
         title = f"수능 국어 프롬프트 아카이브 - {request.category} / {request.version}"
         return PromptExportData(
             title=title,

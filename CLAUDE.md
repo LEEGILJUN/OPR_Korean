@@ -34,11 +34,14 @@ macOS/Linux에서 `--add-data`를 직접 쓸 때 구분자는 `:`, Windows는 `;
 ```
 main.py / app.py        진입점 (QApplication + MainWindow)
 core/
-  models.py             dataclass: PromptRequest, PromptExportData, PromptPreset, DifficultyProfile
+  models.py             dataclass: PromptRequest, PromptExportData, PromptPreset, DifficultyProfile,
+                        QuestionType, RotationAnchor, VariationPlan, GenerationRun
   template_loader.py    templates/*.txt + config/*.json 로딩, 사용자 정의 출제영역 CRUD
   prompt_builder.py     템플릿 조각을 섹션(## 1) ... )으로 합성 → 최종 프롬프트 문자열
+                        + plan_variation()으로 문항 유형 배분과 회차 앵커 결정
   preset_loader.py      기본/사용자 프리셋 로딩·저장·숨김 처리
-  file_utils.py         리소스 경로 해석, .txt/.md 내보내기 렌더링
+  history_store.py      지문별 생성 이력(요청한 유형·앵커) 기록 → 회차 계산과 중복 회피
+  file_utils.py         리소스 경로 해석, passage_fingerprint(), .txt/.md 내보내기 렌더링
 gui/
   main_window.py        전체 UI + 액션 (약 1000줄, 이 앱의 중심)
   widgets.py            ToastNotification, CollapsibleSection, ModuleCheckboxGroup 등 재사용 위젯
@@ -47,8 +50,8 @@ gui/
 
 ### 프롬프트 조립 순서 (`PromptBuilder.build`)
 
-작업 목표 → 공통 규칙(common + 버전 지침 + 난이도 지침) → 영역별 지시 → 추가 모듈 →
-사용자 입력 지문 → 사용자 입력 보기 → 출력 형식.
+작업 목표 → 공통 규칙(common + 버전 지침 + 난이도 지침) → 영역별 지시 → 문항 구성 설계 →
+추가 모듈 → 사용자 입력 지문 → 사용자 입력 보기 → 출력 형식.
 각 섹션은 `@@TITLE:` 마커로 만들어졌다가 `_join_sections`에서 `## n) 제목` 으로 번호가 매겨진다.
 빈 섹션(보기 미입력, 모듈 미선택)은 자동으로 빠지고 번호가 다시 매겨진다.
 
@@ -71,6 +74,8 @@ gui/
 - 버전 지시: `templates/versions/{basic,advanced,ultimate}.txt` (파일 없으면 `version_fallbacks` 사용)
 - 모듈 지시: `templates/modules/*.txt` — 매핑은 `TemplateLoader.modules`
 - 난이도(1~9등급): `config/difficulty_profiles.json`
+- 영역별 문항 유형: `config/question_types.json` — 없는 영역은 `default` 목록으로 대체
+- 회차별 초점 앵커: `config/rotation_anchors.json` — 회차 % 개수로 순환
 - 기본 프리셋: `config/presets.json`
 - 출제영역별 시작 템플릿(사용자 정의 출제영역 추가 시 예시로 제공): `config/category_starter_templates.json`
   - 키 규칙이 `"<기본영역>-<세부유형>"` 이고, GUI가 `startswith(f"{base_category}-")` 로 필터링한다.
@@ -88,10 +93,30 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
 - 타입 힌트 사용, 파일 상단에 `from __future__ import annotations`.
 - 색상은 하드코딩하지 말고 `gui/styles.py`의 `COLORS`를 통해 쓴다.
 
+## 문항 다양성 설계 (중복 방지)
+
+같은 지문을 반복 입력하면 비슷한 문항만 나온다는 사용자 피드백에 대응한 구조다.
+원인은 `common.txt` 1단계가 지문에서 항상 같은 것을 식별하고 2단계가 "그것만 쓰라"고
+못 박은 데 있었다. 네 갈래로 대응한다.
+
+1. **유형 강제 배분** — `PromptBuilder.plan_variation()`이 문항마다 서로 다른 유형을 배정하고,
+   프롬프트의 "문항 구성 설계" 섹션에 넣는다.
+2. **후보 풀 확장** — `common.txt`의 1-B단계(Candidate Pool Stage)가 출제 후보 12개 이상을
+   문단별로 고르게 뽑게 한 뒤 그중에서 고르게 한다.
+3. **오답 유형 배분 + 선지 서술 다양화** — `common.txt` 3단계.
+4. **회차 기반 중복 회피** — `GenerationHistoryStore`가 지문별로 지난 회차에 쓴 유형을 기억하고,
+   `plan_variation()`이 안 쓴 유형을 우선 배정한다. 회차마다 `rotation_anchors.json`의
+   앵커가 순환하며 지문의 다른 지점을 겨냥하게 한다.
+
+중요한 제약: **앱은 LLM이 실제로 만든 문항을 볼 수 없다.** 프롬프트만 만들고 결과는 외부에서
+받기 때문이다. 그래서 이력에는 *요청한* 유형과 앵커만 기록한다. 실제 생성물 기준의 중복 제거가
+필요해지면 결과를 되붙여 넣는 입력이 따로 있어야 한다.
+
+유형 배정은 결정론적이다. 같은 지문·같은 회차면 같은 배정이 나온다. 서로 다른 지문이 같은 유형으로
+시작하지 않도록 `passage_fingerprint()` 값으로 시작 위치를 오프셋한다.
+
 ## 알려진 상태 / 이어서 할 만한 것
 
-- `MainWindow._schedule_preview_update()`는 아직 빈 껍데기다. `self._preview_timer`(QTimer)와 함께
-  디바운스 라이브 프리뷰를 붙이려던 자리.
 - `templates/categories/` 디렉터리는 비어 있고 아무 코드도 참조하지 않는다.
 - 최상위 `csat_prompt_generator/` 디렉터리는 `__pycache__`만 남은 예전 구조의 잔재다. (삭제해도 무방)
 - 자동화된 테스트가 없다. `tools/smoke_test.py`가 유일한 확인 수단.

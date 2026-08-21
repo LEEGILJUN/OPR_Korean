@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import os
 import re
 import sys
@@ -36,6 +37,12 @@ def user_data_root() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "CSATPromptGenerator"
     return Path.home() / ".local" / "share" / "CSATPromptGenerator"
+
+
+def passage_fingerprint(passage: str) -> str:
+    """Return a stable short key for a passage, ignoring whitespace differences."""
+    normalized = re.sub(r"\s+", " ", passage).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def save_text_file(path: Path, content: str) -> None:

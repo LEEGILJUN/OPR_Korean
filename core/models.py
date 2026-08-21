@@ -61,3 +61,41 @@ class DifficultyProfile:
     target_band: str
     summary: str
     guidance: list[str]
+
+
+@dataclass(slots=True)
+class QuestionType:
+    """A CSAT question type used to spread coverage across generated items."""
+
+    name: str
+    focus: str
+
+
+@dataclass(slots=True)
+class RotationAnchor:
+    """Per-round steering that shifts which part of the passage gets targeted."""
+
+    label: str
+    instruction: str
+
+
+@dataclass(slots=True)
+class VariationPlan:
+    """Diversity plan for one generation round of a given passage."""
+
+    round_number: int
+    assigned_types: list[QuestionType]
+    anchor: RotationAnchor
+    excluded_types: list[str]
+
+
+@dataclass(slots=True)
+class GenerationRun:
+    """A past generation recorded for one passage."""
+
+    timestamp: str
+    category: str
+    version: str
+    difficulty: str
+    question_types: list[str]
+    anchor: str
