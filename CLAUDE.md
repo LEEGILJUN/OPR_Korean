@@ -49,6 +49,7 @@ gui/
   widgets.py            ToastNotification, CollapsibleSection, ModuleCheckboxGroup 등 재사용 위젯
   styles.py             LIGHT/DARK 팔레트, apply_theme(), build_stylesheet(font_scale)
   guide_dialog.py       config/user_guide.json 을 렌더링하는 사용 안내 다이얼로그
+  evaluation_dialog.py  생성 결과를 되붙여 넣는 검증 창 (3단계)
 ```
 
 ### 프롬프트 조립 순서 (`PromptBuilder.build`)
@@ -155,9 +156,14 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
 ## UI 구조
 
 화면은 워크플로 3단계를 그대로 반영한다. `StepIndicator`가 상단에 현재 단계를 표시하고,
-가운데 세로 스플리터가 `지문 입력 / 생성 결과 / 생성 결과 검증` 세 카드를 담는다.
-검증은 별개 단계이므로 지문 카드 안에 넣지 말 것 — 한 번 그렇게 만들었다가 발견성이
-나빠서 떼어냈다.
+가운데 세로 스플리터가 `지문 입력 / 생성 결과` 두 카드를 담으며, 그 아래 한 줄짜리 바가
+3단계(검증) 진입점이다.
+
+**검증을 세로 스플리터의 세 번째 칸으로 넣지 말 것.** 두 번 시도했고 두 번 다 실패했다.
+처음에는 지문 카드 안 접이식 섹션이라 발견성이 없었고, 다음에는 별도 칸으로 올렸더니
+세 칸이 약 620px을 나눠 쓰게 되어 펼쳤을 때 내용이 서로 겹쳐 버렸다. 지문·결과 카드의
+minimumSizeHint가 커서 스플리터가 공간을 양보하지 못하는 것이 원인이다.
+지금은 `EvaluationDialog`가 별도 창으로 뜬다 — 별개 단계이므로 별개 창이 맞다.
 
 `AppSettings`가 테마, 폰트 배율, 가이드 표시 여부, 마지막 세션을 한 파일에 모은다.
 새 UI 설정을 추가할 때는 `AppSettings.DEFAULTS`에 키를 넣어야 저장·복원 대상이 된다.

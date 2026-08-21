@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -52,6 +53,7 @@ from core.preset_loader import PresetLoadError, PresetLoader, PresetSaveError
 from core.prompt_builder import PromptBuilder
 from core.template_loader import CategorySaveError, TemplateLoadError, TemplateLoader
 
+from .evaluation_dialog import EvaluationDialog
 from .guide_dialog import GuideDialog
 from .styles import apply_theme, build_stylesheet
 from .widgets import (
@@ -136,6 +138,8 @@ class MainWindow(QMainWindow):
         self.last_generated_prompt: str = ""
         self.last_variation_plan: VariationPlan | None = None
         self.output_kind: str = "prompt"  # "prompt" | "evaluation"
+        self.last_evaluation_text: str = ""
+        self.last_evaluation_mode: str = ""
         self._preview_timer: QTimer | None = None
 
         self._build_ui()
@@ -448,31 +452,50 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.step_indicator)
 
         # Vertical splitter: input / output / verification
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.setHandleWidth(6)
-        splitter.setChildrenCollapsible(False)
+        self.center_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.center_splitter.setHandleWidth(6)
+        self.center_splitter.setChildrenCollapsible(False)
 
-        splitter.addWidget(self._build_input_area())
-        splitter.addWidget(self._build_output_area())
-        splitter.addWidget(self._build_evaluation_card())
+        self.center_splitter.addWidget(self._build_input_area())
+        self.center_splitter.addWidget(self._build_output_area())
 
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 5)
-        splitter.setStretchFactor(2, 0)
-        splitter.setSizes([330, 470, 70])
+        self.center_splitter.setStretchFactor(0, 4)
+        self.center_splitter.setStretchFactor(1, 6)
+        self.center_splitter.setSizes([340, 500])
 
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.center_splitter, 1)
+        layout.addWidget(self._build_evaluation_bar())
         return panel
 
-    def _build_evaluation_card(self) -> QWidget:
-        """Verification is its own workflow stage, not a passage input field."""
-        card = QFrame()
-        card.setObjectName("sectionCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(18, 12, 18, 14)
-        layout.setSpacing(8)
-        layout.addWidget(self._build_evaluation_section())
-        return card
+    def _build_evaluation_bar(self) -> QWidget:
+        """Slim launcher for step 3 — the work itself happens in a dialog.
+
+        Verification used to be a third splitter pane, where it fought the passage
+        and the result for vertical space and got squeezed until its contents
+        overlapped. It is a separate stage, so it gets a separate window.
+        """
+        frame = QFrame()
+        frame.setObjectName("toolbarFrame")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(18, 10, 18, 10)
+        layout.setSpacing(12)
+
+        label = QLabel("③ 생성 결과 검증")
+        label.setObjectName("fieldLabel")
+        layout.addWidget(label)
+
+        hint = QLabel("LLM이 만든 문항을 붙여 넣으면 잘 만들어졌는지 점검하는 프롬프트를 만들어 드립니다.")
+        hint.setObjectName("sectionHint")
+        layout.addWidget(hint)
+        layout.addStretch(1)
+
+        self.open_evaluation_button = QPushButton("검증 창 열기")
+        self.open_evaluation_button.setObjectName("secondaryButton")
+        self.open_evaluation_button.setToolTip(self.FIELD_HELP_TEXTS["evaluation"] + "  (Ctrl+E)")
+        self.open_evaluation_button.clicked.connect(self.build_evaluation_prompt)
+        layout.addWidget(self.open_evaluation_button)
+
+        return frame
 
     def _build_input_area(self) -> QWidget:
         card = QFrame()
@@ -513,7 +536,7 @@ class MainWindow(QMainWindow):
         self.passage_edit = QPlainTextEdit()
         self.passage_edit.setPlaceholderText("문항 생성에 사용할 지문을 입력하세요...")
         self.passage_edit.setToolTip(self.FIELD_HELP_TEXTS["passage"])
-        self.passage_edit.setMinimumHeight(120)
+        self.passage_edit.setMinimumHeight(70)
         self.passage_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.passage_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.passage_edit.textChanged.connect(self._schedule_preview_update)
@@ -532,76 +555,13 @@ class MainWindow(QMainWindow):
         self.example_edit = QPlainTextEdit()
         self.example_edit.setPlaceholderText("보기 또는 추가 제시문이 있으면 입력하세요...")
         self.example_edit.setToolTip(self.FIELD_HELP_TEXTS["example"])
+        self.example_edit.setMinimumHeight(52)
         self.example_edit.setMaximumHeight(120)
         self.example_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.example_edit.textChanged.connect(self._schedule_preview_update)
         layout.addWidget(self.example_edit)
 
         return card
-
-    def _build_evaluation_section(self) -> QWidget:
-        """Paste generated questions back in to build a verification prompt."""
-        section = CollapsibleSection("생성 결과 검증", expanded=False)
-        content = section.content_layout()
-
-        hint = QLabel(
-            "LLM이 만들어 준 문항을 그대로 붙여 넣으세요. "
-            "잘 만들어졌는지 점검하는 검증 프롬프트를 만들어 드립니다.\n"
-            "만들어진 검증 프롬프트는 반드시 새 대화창에서 실행하세요. "
-            "같은 대화창에서 실행하면 이미 자기가 만든 답에 이끌려 결함을 놓칩니다."
-        )
-        hint.setObjectName("sectionHint")
-        hint.setWordWrap(True)
-        content.addWidget(hint)
-
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(8)
-        mode_row.addWidget(
-            self._make_field_label("검증 방식", self.FIELD_HELP_TEXTS["evaluation_mode"])
-        )
-        self.evaluation_mode_combo = QComboBox()
-        self.evaluation_mode_combo.setMinimumWidth(280)
-        self.evaluation_mode_combo.setToolTip(self.FIELD_HELP_TEXTS["evaluation_mode"])
-        try:
-            self.evaluation_mode_combo.addItems(self.template_loader.evaluation_mode_labels())
-        except TemplateLoadError as exc:
-            self.evaluation_load_error_message = str(exc)
-        self.evaluation_mode_combo.currentTextChanged.connect(self._update_evaluation_description)
-        mode_row.addWidget(self.evaluation_mode_combo)
-        mode_row.addStretch(1)
-        content.addLayout(mode_row)
-
-        self.evaluation_description_label = QLabel("")
-        self.evaluation_description_label.setObjectName("sectionHint")
-        self.evaluation_description_label.setWordWrap(True)
-        content.addWidget(self.evaluation_description_label)
-
-        self.evaluation_input_edit = QPlainTextEdit()
-        self.evaluation_input_edit.setPlaceholderText(
-            "LLM이 생성한 문항을 여기에 붙여 넣으세요. 분석 단계나 해설이 섞여 있어도 괜찮습니다..."
-        )
-        self.evaluation_input_edit.setToolTip(self.FIELD_HELP_TEXTS["evaluation"])
-        self.evaluation_input_edit.setMinimumHeight(110)
-        self.evaluation_input_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        content.addWidget(self.evaluation_input_edit)
-
-        button_row = QHBoxLayout()
-        button_row.setSpacing(8)
-        self.build_evaluation_button = QPushButton("검증 프롬프트 생성")
-        self.build_evaluation_button.setObjectName("secondaryButton")
-        self.build_evaluation_button.setToolTip(self.FIELD_HELP_TEXTS["evaluation"])
-        self.build_evaluation_button.clicked.connect(self.build_evaluation_prompt)
-        button_row.addWidget(self.build_evaluation_button)
-
-        self.clear_evaluation_button = QPushButton("붙여넣기 지우기")
-        self.clear_evaluation_button.setObjectName("iconButton")
-        self.clear_evaluation_button.clicked.connect(self.evaluation_input_edit.clear)
-        button_row.addWidget(self.clear_evaluation_button)
-        button_row.addStretch(1)
-        content.addLayout(button_row)
-
-        self._update_evaluation_description(self.evaluation_mode_combo.currentText())
-        return section
 
     def _build_output_area(self) -> QWidget:
         card = QFrame()
@@ -634,6 +594,7 @@ class MainWindow(QMainWindow):
         self.output_edit.setPlaceholderText("프롬프트 생성 버튼을 누르면 결과가 여기에 표시됩니다.")
         self.output_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.output_edit.setTabStopDistance(28)
+        self.output_edit.setMinimumHeight(70)
         self.output_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
@@ -714,6 +675,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, lambda: self.save_output("md"))
         QShortcut(QKeySequence("Ctrl+R"), self, self._confirm_reset)
         QShortcut(QKeySequence("F1"), self, self.show_user_guide)
+        QShortcut(QKeySequence("Ctrl+E"), self, self.build_evaluation_prompt)
 
     # ===================================================================
     # ACTIONS
@@ -954,16 +916,7 @@ class MainWindow(QMainWindow):
             self.step_indicator.set_current(index)
 
     def build_evaluation_prompt(self) -> None:
-        """Turn pasted-back questions into a prompt that checks them."""
-        pasted = self.evaluation_input_edit.toPlainText().strip()
-        if not pasted:
-            self._show_validation_warning(
-                "검증할 내용 없음",
-                "LLM이 생성한 문항을 먼저 붙여 넣어 주세요.",
-                self.evaluation_input_edit,
-            )
-            return
-
+        """Open the verification dialog and turn what was pasted into a check prompt."""
         passage = self.passage_edit.toPlainText().strip()
         if not passage:
             self._show_validation_warning(
@@ -974,9 +927,36 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            mode = self.template_loader.load_evaluation_mode(
-                self.evaluation_mode_combo.currentText().strip()
+            mode_labels = self.template_loader.evaluation_mode_labels()
+        except TemplateLoadError as exc:
+            QMessageBox.warning(self, "검증 설정 확인 필요", str(exc))
+            return
+
+        dialog = EvaluationDialog(
+            mode_labels,
+            self._describe_evaluation_mode,
+            self,
+            initial_text=self.last_evaluation_text,
+            initial_mode=self.last_evaluation_mode,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        pasted = dialog.pasted_text()
+        mode_label = dialog.selected_mode()
+        self.last_evaluation_text = pasted
+        self.last_evaluation_mode = mode_label
+
+        if not pasted:
+            QMessageBox.warning(
+                self,
+                "검증할 내용 없음",
+                "LLM이 생성한 문항을 붙여 넣어 주세요.",
             )
+            return
+
+        try:
+            mode = self.template_loader.load_evaluation_mode(mode_label)
             evaluation_prompt = self.evaluation_builder.build(
                 EvaluationRequest(
                     generated_output=pasted,
@@ -1014,6 +994,17 @@ class MainWindow(QMainWindow):
             f"검증 프롬프트 생성 완료  |  방식: {mode.label}  |  반드시 새 대화창에서 실행하세요."
         )
 
+    def _describe_evaluation_mode(self, mode_label: str) -> str:
+        """Human-readable blurb for one verification mode, for the dialog."""
+        try:
+            mode = self.template_loader.load_evaluation_mode(mode_label)
+        except TemplateLoadError:
+            return ""
+        text = mode.description
+        if mode.strip_answers:
+            text += "\n정답과 해설은 앱이 자동으로 제거한 뒤 프롬프트에 넣습니다."
+        return text
+
     def _on_manual_types_toggled(self, checked: bool) -> None:
         """Switch between automatic type assignment and a hand-picked list."""
         self.question_type_picker.setVisible(checked)
@@ -1044,19 +1035,6 @@ class MainWindow(QMainWindow):
         if not self.manual_types_checkbox.isChecked():
             return None
         return self.question_type_picker.selected_names() or None
-
-    def _update_evaluation_description(self, mode_label: str) -> None:
-        if not hasattr(self, "evaluation_description_label"):
-            return
-        try:
-            mode = self.template_loader.load_evaluation_mode(mode_label.strip())
-        except TemplateLoadError:
-            self.evaluation_description_label.setText("")
-            return
-        text = mode.description
-        if mode.strip_answers:
-            text += "\n정답과 해설은 앱이 자동으로 제거한 뒤 프롬프트에 넣습니다."
-        self.evaluation_description_label.setText(text)
 
     def apply_selected_preset(self) -> None:
         preset_label = self.preset_combo.currentText().strip()
@@ -1292,7 +1270,7 @@ class MainWindow(QMainWindow):
         self.module_group.reset()
         self.manual_types_checkbox.setChecked(False)
         self.question_type_picker.reset()
-        self.evaluation_input_edit.clear()
+        self.last_evaluation_text = ""
         self._clear_generated_output()
         self._refresh_round_indicator()
         self.app_settings.set("last_session", None)
@@ -1634,7 +1612,7 @@ class MainWindow(QMainWindow):
 
     def _build_evaluation_export_data(self, evaluation_prompt: str) -> PromptExportData:
         """Export metadata for a verification prompt rather than a generation prompt."""
-        mode_label = self.evaluation_mode_combo.currentText().strip()
+        mode_label = self.last_evaluation_mode
         category = self.category_combo.currentText()
         return PromptExportData(
             title=f"수능 국어 문항 검증 프롬프트 - {category} / {mode_label}",

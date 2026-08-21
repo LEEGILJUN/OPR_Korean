@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Generator
 
-from PySide6.QtCore import QPropertyAnimation, QTimer, Qt, QEasingCurve
+from PySide6.QtCore import QPropertyAnimation, QTimer, Qt, QEasingCurve, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -137,6 +137,9 @@ class ToastNotification(QFrame):
 class CollapsibleSection(QWidget):
     """A section header that can show/hide its content on click."""
 
+    # Emitted with the new expanded state so containers can make room.
+    toggled = Signal(bool)
+
     def __init__(self, title: str, parent: QWidget | None = None, expanded: bool = True) -> None:
         super().__init__(parent)
         self._expanded = expanded
@@ -200,6 +203,8 @@ class CollapsibleSection(QWidget):
         self._expanded = not self._expanded
         self._content.setVisible(self._expanded)
         self._arrow.setText("\u25BC" if self._expanded else "\u25B6")
+        self.updateGeometry()
+        self.toggled.emit(self._expanded)
 
     def set_expanded(self, expanded: bool) -> None:
         if self._expanded != expanded:
