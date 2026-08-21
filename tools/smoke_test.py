@@ -12,8 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from core.evaluation_builder import EvaluationBuilder
 from core.history_store import GenerationHistoryStore
-from core.models import PromptRequest
+from core.models import EvaluationRequest, PromptRequest
 from core.preset_loader import PresetLoader
 from core.prompt_builder import PromptBuilder
 from core.template_loader import TemplateLoader
@@ -122,6 +123,59 @@ def check_variation(loader: TemplateLoader) -> None:
         print(f"  3회차 {rounds[2]}")
 
 
+def check_evaluation(loader: TemplateLoader) -> None:
+    """Blind mode must not leak the answer key; other modes must keep it."""
+    builder = EvaluationBuilder(loader)
+    modes = loader.load_evaluation_modes()
+    assert modes, "검증 모드가 비어 있습니다."
+
+    generated = """## 1-B 후보 목록
+1. 2문단의 한정 조건
+2. 3문단 인과 관계
+
+## 문항
+
+1. 윗글의 내용과 일치하지 않는 것은?
+① 첫째 선지입니다.
+② 둘째 선지입니다.
+③ 셋째 선지입니다.
+
+정답: ②
+해설: 2문단에서 확인된다.
+출제 의도: 세부 정보 확인
+
+2. 윗글의 논지를 200자 내외로 서술하시오.
+
+모범 답안: 핵심 개념을 언급하면 만점
+"""
+    leak_markers = ["정답:", "해설:", "출제 의도", "모범 답안", "후보 목록"]
+
+    for mode in modes:
+        request = EvaluationRequest(
+            generated_output=generated,
+            passage="검증용 원본 지문입니다.",
+            example_text="",
+            category="독서",
+            difficulty=loader.difficulty_names()[0],
+            question_style="객관식 5지선다",
+            mode=mode,
+        )
+        prompt = builder.build(request)
+        assert "검증 목표" in prompt, f"검증 목표 섹션 없음: {mode.label}"
+        assert "원본 지문" in prompt, f"원본 지문 섹션 없음: {mode.label}"
+
+        if mode.strip_answers:
+            leaked = [marker for marker in leak_markers if marker in prompt]
+            assert not leaked, f"블라인드 모드에 정답이 누출되었습니다: {leaked}"
+            assert "① 첫째 선지입니다." in prompt, "블라인드 모드에서 선지가 사라졌습니다."
+            assert "서술하시오" in prompt, "블라인드 모드에서 서술형 문항이 사라졌습니다."
+        else:
+            assert "정답: ②" in prompt, f"검토 모드인데 정답이 빠졌습니다: {mode.label}"
+
+    print(f"  검증 모드 {len(modes)}개: " + ", ".join(m.mode_id for m in modes))
+    print("  블라인드 모드 정답 누출 없음, 검토 모드 정답 보존 확인")
+
+
 def check_window() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
@@ -138,15 +192,17 @@ def check_window() -> None:
 
 
 def main() -> int:
-    print("[1/5] 템플릿 로더")
+    print("[1/6] 템플릿 로더")
     loader = check_loaders()
-    print("[2/5] 프리셋 로더")
+    print("[2/6] 프리셋 로더")
     check_presets()
-    print("[3/5] 프롬프트 빌더")
+    print("[3/6] 프롬프트 빌더")
     check_builder(loader)
-    print("[4/5] 문항 다양성 (유형 배분 + 회차 이력)")
+    print("[4/6] 문항 다양성 (유형 배분 + 회차 이력)")
     check_variation(loader)
-    print("[5/5] GUI 생성 (offscreen)")
+    print("[5/6] 생성 결과 검증 (정답 제거 + 검증 프롬프트)")
+    check_evaluation(loader)
+    print("[6/6] GUI 생성 (offscreen)")
     check_window()
     print("\n모든 확인 통과.")
     return 0

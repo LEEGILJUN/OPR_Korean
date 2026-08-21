@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from .file_utils import config_root, templates_root, user_data_root
-from .models import DifficultyProfile, QuestionType, RotationAnchor
+from .models import DifficultyProfile, EvaluationMode, QuestionType, RotationAnchor
 
 
 class TemplateLoadError(RuntimeError):
@@ -74,6 +74,7 @@ class TemplateLoader:
         self.category_starters_path = config_root() / "category_starter_templates.json"
         self.question_types_path = config_root() / "question_types.json"
         self.rotation_anchors_path = config_root() / "rotation_anchors.json"
+        self.evaluation_criteria_path = config_root() / "evaluation_criteria.json"
 
     def category_names(self) -> list[str]:
         names = list(self.categories.keys())
@@ -242,6 +243,58 @@ class TemplateLoader:
             if label and instruction:
                 result.append(RotationAnchor(label=label, instruction=instruction))
         return result
+
+    def load_evaluation_modes(self) -> list[EvaluationMode]:
+        """Return the ways generated questions can be checked."""
+        payload = self._read_json(self.evaluation_criteria_path, "검증 설정 파일")
+        if payload is None:
+            raise TemplateLoadError(
+                f"검증 설정 파일을 찾을 수 없습니다.\n경로: {self.evaluation_criteria_path}"
+            )
+
+        modes = payload.get("modes", [])
+        if not isinstance(modes, list) or not modes:
+            raise TemplateLoadError(
+                f"검증 설정 형식이 올바르지 않습니다.\n경로: {self.evaluation_criteria_path}"
+            )
+
+        result: list[EvaluationMode] = []
+        for item in modes:
+            if not isinstance(item, dict):
+                raise TemplateLoadError("검증 모드 항목 형식이 올바르지 않습니다.")
+            criteria = item.get("criteria", [])
+            output_format = item.get("output_format", [])
+            if not isinstance(criteria, list) or not isinstance(output_format, list):
+                raise TemplateLoadError("검증 모드의 criteria와 output_format은 배열이어야 합니다.")
+            label = str(item.get("label", "")).strip()
+            if not label:
+                continue
+            result.append(
+                EvaluationMode(
+                    mode_id=str(item.get("id", "")).strip(),
+                    label=label,
+                    description=str(item.get("description", "")).strip(),
+                    strip_answers=bool(item.get("strip_answers", False)),
+                    instruction=str(item.get("instruction", "")).strip(),
+                    criteria=[str(line).strip() for line in criteria if str(line).strip()],
+                    output_format=[str(line).strip() for line in output_format if str(line).strip()],
+                )
+            )
+        if not result:
+            raise TemplateLoadError("사용 가능한 검증 모드가 없습니다.")
+        return result
+
+    def evaluation_mode_labels(self) -> list[str]:
+        return [mode.label for mode in self.load_evaluation_modes()]
+
+    def load_evaluation_mode(self, label: str) -> EvaluationMode:
+        for mode in self.load_evaluation_modes():
+            if mode.label == label:
+                return mode
+        available = ", ".join(self.evaluation_mode_labels())
+        raise TemplateLoadError(
+            f"검증 모드 '{label}' 을 찾을 수 없습니다.\n사용 가능 항목: {available}"
+        )
 
     def _read_json(self, path: Path, label: str) -> dict | None:
         """Read an optional JSON config. Returns None when the file is absent."""

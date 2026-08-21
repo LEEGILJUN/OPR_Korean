@@ -37,8 +37,15 @@ from core.file_utils import (
     ensure_file_extension,
     save_text_file,
 )
+from core.evaluation_builder import EvaluationBuildError, EvaluationBuilder
 from core.history_store import GenerationHistoryStore, HistoryStoreError
-from core.models import PromptExportData, PromptPreset, PromptRequest, VariationPlan
+from core.models import (
+    EvaluationRequest,
+    PromptExportData,
+    PromptPreset,
+    PromptRequest,
+    VariationPlan,
+)
 from core.preset_loader import PresetLoadError, PresetLoader, PresetSaveError
 from core.prompt_builder import PromptBuilder
 from core.template_loader import CategorySaveError, TemplateLoadError, TemplateLoader
@@ -87,6 +94,8 @@ class MainWindow(QMainWindow):
         "delete_category": "선택한 사용자 정의 출제영역을 삭제합니다. 기본 제공 출제영역은 삭제할 수 없습니다.",
         "round": "같은 지문으로 몇 번째 생성인지 보여 줍니다. 회차가 올라가면 이전 회차에서 쓰지 않은 문항 유형과 다른 지문 지점을 우선 겨냥하도록 프롬프트가 바뀝니다.",
         "reset_history": "이 지문의 생성 이력을 지웁니다. 지우면 다음 생성이 다시 1회차로 시작합니다.",
+        "evaluation": "LLM이 만들어 준 문항을 여기에 그대로 붙여 넣으면, 그 문항이 잘 만들어졌는지 점검하는 '검증 프롬프트'를 만들어 줍니다. 그 프롬프트를 새 대화창에 붙여 넣어 실행하세요.",
+        "evaluation_mode": "무엇을 점검할지 고릅니다. 블라인드 풀이는 정답을 지우고 직접 풀게 해 복수 정답을 잡아내고, 정밀 검토는 근거와 선지 설계를 진단하며, 난이도 점검은 목표 등급에 실제로 맞는지 봅니다.",
     }
 
     MODULE_HELP_TEXTS = {
@@ -109,11 +118,14 @@ class MainWindow(QMainWindow):
         self.preset_loader = PresetLoader()
         self.prompt_builder = PromptBuilder(self.template_loader)
         self.history_store = GenerationHistoryStore()
+        self.evaluation_builder = EvaluationBuilder(self.template_loader)
         self.presets_by_label: dict[str, PromptPreset] = {}
         self.preset_load_error_message: str = ""
+        self.evaluation_load_error_message: str = ""
         self.last_generated_request: PromptRequest | None = None
         self.last_generated_prompt: str = ""
         self.last_variation_plan: VariationPlan | None = None
+        self.output_kind: str = "prompt"  # "prompt" | "evaluation"
         self._preview_timer: QTimer | None = None
 
         self._build_ui()
@@ -447,7 +459,73 @@ class MainWindow(QMainWindow):
         self.example_edit.textChanged.connect(self._schedule_preview_update)
         layout.addWidget(self.example_edit)
 
+        layout.addWidget(self._build_evaluation_section())
+
         return card
+
+    def _build_evaluation_section(self) -> QWidget:
+        """Paste generated questions back in to build a verification prompt."""
+        section = CollapsibleSection("생성 결과 검증", expanded=False)
+        content = section.content_layout()
+
+        hint = QLabel(
+            "LLM이 만들어 준 문항을 그대로 붙여 넣으세요. "
+            "잘 만들어졌는지 점검하는 검증 프롬프트를 만들어 드립니다.\n"
+            "만들어진 검증 프롬프트는 반드시 새 대화창에서 실행하세요. "
+            "같은 대화창에서 실행하면 이미 자기가 만든 답에 이끌려 결함을 놓칩니다."
+        )
+        hint.setObjectName("sectionHint")
+        hint.setWordWrap(True)
+        content.addWidget(hint)
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(8)
+        mode_row.addWidget(
+            self._make_field_label("검증 방식", self.FIELD_HELP_TEXTS["evaluation_mode"])
+        )
+        self.evaluation_mode_combo = QComboBox()
+        self.evaluation_mode_combo.setMinimumWidth(280)
+        self.evaluation_mode_combo.setToolTip(self.FIELD_HELP_TEXTS["evaluation_mode"])
+        try:
+            self.evaluation_mode_combo.addItems(self.template_loader.evaluation_mode_labels())
+        except TemplateLoadError as exc:
+            self.evaluation_load_error_message = str(exc)
+        self.evaluation_mode_combo.currentTextChanged.connect(self._update_evaluation_description)
+        mode_row.addWidget(self.evaluation_mode_combo)
+        mode_row.addStretch(1)
+        content.addLayout(mode_row)
+
+        self.evaluation_description_label = QLabel("")
+        self.evaluation_description_label.setObjectName("sectionHint")
+        self.evaluation_description_label.setWordWrap(True)
+        content.addWidget(self.evaluation_description_label)
+
+        self.evaluation_input_edit = QPlainTextEdit()
+        self.evaluation_input_edit.setPlaceholderText(
+            "LLM이 생성한 문항을 여기에 붙여 넣으세요. 분석 단계나 해설이 섞여 있어도 괜찮습니다..."
+        )
+        self.evaluation_input_edit.setToolTip(self.FIELD_HELP_TEXTS["evaluation"])
+        self.evaluation_input_edit.setMinimumHeight(110)
+        self.evaluation_input_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        content.addWidget(self.evaluation_input_edit)
+
+        button_row = QHBoxLayout()
+        button_row.setSpacing(8)
+        self.build_evaluation_button = QPushButton("검증 프롬프트 생성")
+        self.build_evaluation_button.setObjectName("secondaryButton")
+        self.build_evaluation_button.setToolTip(self.FIELD_HELP_TEXTS["evaluation"])
+        self.build_evaluation_button.clicked.connect(self.build_evaluation_prompt)
+        button_row.addWidget(self.build_evaluation_button)
+
+        self.clear_evaluation_button = QPushButton("붙여넣기 지우기")
+        self.clear_evaluation_button.setObjectName("iconButton")
+        self.clear_evaluation_button.clicked.connect(self.evaluation_input_edit.clear)
+        button_row.addWidget(self.clear_evaluation_button)
+        button_row.addStretch(1)
+        content.addLayout(button_row)
+
+        self._update_evaluation_description(self.evaluation_mode_combo.currentText())
+        return section
 
     def _build_output_area(self) -> QWidget:
         card = QFrame()
@@ -459,9 +537,9 @@ class MainWindow(QMainWindow):
         # Header
         header = QHBoxLayout()
         header.setSpacing(8)
-        title = QLabel("생성 결과")
-        title.setObjectName("sectionTitle")
-        header.addWidget(title)
+        self.output_title_label = QLabel("생성 결과")
+        self.output_title_label.setObjectName("sectionTitle")
+        header.addWidget(self.output_title_label)
         header.addStretch(1)
 
         self.token_label = QLabel("")
@@ -580,6 +658,8 @@ class MainWindow(QMainWindow):
             self.history_store.record(request, variation)
 
         self.output_edit.setPlainText(final_prompt)
+        self.output_title_label.setText("생성 결과")
+        self.output_kind = "prompt"
         self.last_generated_request = request
         self.last_generated_prompt = final_prompt
         self.last_variation_plan = variation
@@ -588,6 +668,78 @@ class MainWindow(QMainWindow):
         self._toast(self._variation_toast_message(variation), "success")
         self.statusBar().showMessage(self._variation_status_message(variation))
         self._refresh_round_indicator()
+
+    def build_evaluation_prompt(self) -> None:
+        """Turn pasted-back questions into a prompt that checks them."""
+        pasted = self.evaluation_input_edit.toPlainText().strip()
+        if not pasted:
+            self._show_validation_warning(
+                "검증할 내용 없음",
+                "LLM이 생성한 문항을 먼저 붙여 넣어 주세요.",
+                self.evaluation_input_edit,
+            )
+            return
+
+        passage = self.passage_edit.toPlainText().strip()
+        if not passage:
+            self._show_validation_warning(
+                "지문 확인 필요",
+                "검증에는 원본 지문이 필요합니다.\n문항을 만들 때 사용한 지문을 입력해 주세요.",
+                self.passage_edit,
+            )
+            return
+
+        try:
+            mode = self.template_loader.load_evaluation_mode(
+                self.evaluation_mode_combo.currentText().strip()
+            )
+            evaluation_prompt = self.evaluation_builder.build(
+                EvaluationRequest(
+                    generated_output=pasted,
+                    passage=passage,
+                    example_text=self.example_edit.toPlainText().strip(),
+                    category=self.category_combo.currentText(),
+                    difficulty=self.difficulty_combo.currentText(),
+                    question_style=self.question_style_combo.currentText().strip(),
+                    mode=mode,
+                )
+            )
+        except EvaluationBuildError as exc:
+            QMessageBox.warning(self, "검증 프롬프트를 만들 수 없습니다", str(exc))
+            self._toast("검증 프롬프트를 만들지 못했습니다.", "error")
+            return
+        except TemplateLoadError as exc:
+            QMessageBox.warning(self, "검증 설정 확인 필요", str(exc))
+            self._toast("검증 설정을 불러오지 못했습니다.", "error")
+            return
+
+        self.output_edit.setPlainText(evaluation_prompt)
+        self.output_title_label.setText("검증 프롬프트")
+        self.last_generated_prompt = evaluation_prompt
+        self.output_kind = "evaluation"
+        self._set_output_buttons_enabled(True)
+        self._update_token_count(evaluation_prompt)
+
+        if mode.strip_answers:
+            self._toast("정답·해설을 제거했습니다. 새 대화창에서 실행하세요.", "success")
+        else:
+            self._toast("검증 프롬프트를 만들었습니다. 새 대화창에서 실행하세요.", "success")
+        self.statusBar().showMessage(
+            f"검증 프롬프트 생성 완료  |  방식: {mode.label}  |  반드시 새 대화창에서 실행하세요."
+        )
+
+    def _update_evaluation_description(self, mode_label: str) -> None:
+        if not hasattr(self, "evaluation_description_label"):
+            return
+        try:
+            mode = self.template_loader.load_evaluation_mode(mode_label.strip())
+        except TemplateLoadError:
+            self.evaluation_description_label.setText("")
+            return
+        text = mode.description
+        if mode.strip_answers:
+            text += "\n정답과 해설은 앱이 자동으로 제거한 뒤 프롬프트에 넣습니다."
+        self.evaluation_description_label.setText(text)
 
     def apply_selected_preset(self) -> None:
         preset_label = self.preset_combo.currentText().strip()
@@ -768,10 +920,16 @@ class MainWindow(QMainWindow):
 
     def save_output(self, extension: str) -> None:
         output = self._require_generated_prompt("저장")
-        if output is None or self.last_generated_request is None:
+        if output is None:
             return
 
-        export_data = self._build_export_data(self.last_generated_request, output)
+        if self.output_kind == "evaluation":
+            export_data = self._build_evaluation_export_data(output)
+        elif self.last_generated_request is not None:
+            export_data = self._build_export_data(self.last_generated_request, output)
+        else:
+            self._toast("저장할 생성 정보가 없습니다.", "error")
+            return
         content = build_export_content(export_data, extension)
         default_name = build_default_filename(export_data.category, export_data.version, extension)
         selected_path, _ = QFileDialog.getSaveFileName(
@@ -815,6 +973,7 @@ class MainWindow(QMainWindow):
         self.passage_edit.clear()
         self.example_edit.clear()
         self.module_group.reset()
+        self.evaluation_input_edit.clear()
         self._clear_generated_output()
         self._refresh_round_indicator()
         self._toast("모든 입력을 초기화했습니다.", "info")
@@ -1103,8 +1262,31 @@ class MainWindow(QMainWindow):
         self.last_generated_request = None
         self.last_generated_prompt = ""
         self.last_variation_plan = None
+        self.output_kind = "prompt"
+        self.output_title_label.setText("생성 결과")
         self.token_label.setText("")
         self._set_output_buttons_enabled(False)
+
+    def _build_evaluation_export_data(self, evaluation_prompt: str) -> PromptExportData:
+        """Export metadata for a verification prompt rather than a generation prompt."""
+        mode_label = self.evaluation_mode_combo.currentText().strip()
+        category = self.category_combo.currentText()
+        return PromptExportData(
+            title=f"수능 국어 문항 검증 프롬프트 - {category} / {mode_label}",
+            timestamp=current_timestamp(),
+            category=category,
+            version=mode_label,
+            difficulty=self.difficulty_combo.currentText(),
+            question_count=self.question_count_spin.value(),
+            selected_options=[
+                f"검증 방식: {mode_label}",
+                f"문항 형식: {self.question_style_combo.currentText().strip()}",
+                "이 프롬프트는 새 대화창에서 실행해야 합니다.",
+            ],
+            passage=self.passage_edit.toPlainText().strip(),
+            example_text=self.example_edit.toPlainText().strip(),
+            generated_prompt=evaluation_prompt,
+        )
 
     def _build_export_data(self, request: PromptRequest, generated_prompt: str) -> PromptExportData:
         selected_options = [

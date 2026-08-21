@@ -40,6 +40,7 @@ core/
   prompt_builder.py     템플릿 조각을 섹션(## 1) ... )으로 합성 → 최종 프롬프트 문자열
                         + plan_variation()으로 문항 유형 배분과 회차 앵커 결정
   preset_loader.py      기본/사용자 프리셋 로딩·저장·숨김 처리
+  evaluation_builder.py 되붙여 넣은 생성 결과 → 검증 프롬프트 (정답 제거 포함)
   history_store.py      지문별 생성 이력(요청한 유형·앵커) 기록 → 회차 계산과 중복 회피
   file_utils.py         리소스 경로 해석, passage_fingerprint(), .txt/.md 내보내기 렌더링
 gui/
@@ -77,6 +78,7 @@ gui/
 - 영역별 문항 유형: `config/question_types.json` — 없는 영역은 `default` 목록으로 대체
 - 회차별 초점 앵커: `config/rotation_anchors.json` — 회차 % 개수로 순환
 - 기본 프리셋: `config/presets.json`
+- 검증 모드와 점검 항목: `config/evaluation_criteria.json`
 - 출제영역별 시작 템플릿(사용자 정의 출제영역 추가 시 예시로 제공): `config/category_starter_templates.json`
   - 키 규칙이 `"<기본영역>-<세부유형>"` 이고, GUI가 `startswith(f"{base_category}-")` 로 필터링한다.
 
@@ -115,8 +117,36 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
 유형 배정은 결정론적이다. 같은 지문·같은 회차면 같은 배정이 나온다. 서로 다른 지문이 같은 유형으로
 시작하지 않도록 `passage_fingerprint()` 값으로 시작 위치를 오프셋한다.
 
+## 생성 결과 검증 (검증 루프)
+
+앱은 LLM을 호출하지 않으므로 검증도 생성과 같은 방식으로 돈다.
+사용자가 LLM 출력을 되붙여 넣으면 앱이 **검증 프롬프트**를 만들고, 사용자가 그것을
+**새 대화창**에서 실행한다. 같은 대화창에서 돌리면 자기가 쓴 근거에 앵커링되어 결함을 놓친다.
+
+모드는 `config/evaluation_criteria.json`에 있고 `strip_answers` 플래그로 갈린다.
+
+- `blind_solve` (strip_answers: true) — 정답·해설을 제거하고 응시자로서 직접 풀게 한다.
+  복수 정답, 모호성, 죽은 선지를 잡는다.
+- `full_review` (false) — 정답까지 다 보여 주고 검토위원으로서 진단한다. 근거 환각, 선지 설계.
+- `difficulty_check` (false) — 목표 등급에 실제로 맞는지 진단한다.
+
+`EvaluationBuilder.extract_question_items()`가 정답 제거를 담당한다. 단순 치환이 아니라
+**추출**이다. 생성 출력에는 분석 단계·후보 목록·자기 점검이 함께 들어 있어서, 문항 블록만
+남기고 나머지를 버리는 쪽이 안전하다. 세 개의 정규식이 경계를 정한다.
+
+- `QUESTION_START` — 블록 시작 (`1.` `1)` `[문항 1]` `Q1`)
+- `ANSWER_MARKER` / `SECTION_BREAK` — 블록 종료
+- `_looks_like_question()` — 선지 마커가 있거나 발문형 어미로 끝나는 블록만 통과.
+  후보 목록도 `1.`로 시작하므로 이 필터가 없으면 분석 내용이 블라인드 풀이로 새어 나간다.
+
+정답 제거 로직을 건드리면 `tools/smoke_test.py`의 `check_evaluation()`이 누출을 잡는다.
+새로운 정답 표기 방식(`채점 기준:`처럼 키워드 뒤에 수식어가 붙는 형태)을 만나면
+`_ANSWER_KEYWORD`에 추가하라.
+
 ## 알려진 상태 / 이어서 할 만한 것
 
 - `templates/categories/` 디렉터리는 비어 있고 아무 코드도 참조하지 않는다.
 - 최상위 `csat_prompt_generator/` 디렉터리는 `__pycache__`만 남은 예전 구조의 잔재다. (삭제해도 무방)
 - 자동화된 테스트가 없다. `tools/smoke_test.py`가 유일한 확인 수단.
+- 검증은 아직 사람이 프롬프트를 옮겨 실행해야 한다. API를 붙이면 생성 → 검증 → 재생성이
+  자동으로 돌고, 그때 비로소 템플릿 변경의 효과를 점수로 잴 수 있다.

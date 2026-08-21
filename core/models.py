@@ -99,3 +99,29 @@ class GenerationRun:
     difficulty: str
     question_types: list[str]
     anchor: str
+
+
+@dataclass(slots=True)
+class EvaluationMode:
+    """One way of checking generated questions."""
+
+    mode_id: str
+    label: str
+    description: str
+    strip_answers: bool
+    instruction: str
+    criteria: list[str]
+    output_format: list[str]
+
+
+@dataclass(slots=True)
+class EvaluationRequest:
+    """Input for building a verification prompt from pasted-back output."""
+
+    generated_output: str
+    passage: str
+    example_text: str
+    category: str
+    difficulty: str
+    question_style: str
+    mode: EvaluationMode
