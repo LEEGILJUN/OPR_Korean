@@ -110,6 +110,7 @@ class MainWindow(QMainWindow):
         "load": "이전에 저장한 .txt 또는 .md 아카이브에서 지문과 보기를 다시 불러옵니다. 설정은 파일에 기록된 값으로 맞춥니다.",
         "theme": "밝은 화면과 어두운 화면을 전환합니다. 선택은 저장되어 다음 실행에도 유지됩니다.",
         "font_size": "글자 크기를 조절합니다. 80%에서 150%까지 바꿀 수 있습니다.",
+        "section_counts": "산출물 유형이 여러 형식의 문항을 담을 때, 형식마다 몇 개씩 만들지 정합니다. 0으로 두면 그 형식은 만들지 않습니다.",
         "question_types": "문항마다 어떤 유형을 낼지 정합니다. 자동이면 앱이 서로 다른 유형을 배분하고, 같은 지문을 다시 쓸 때 지난 회차에 쓴 유형을 피합니다. 직접 고르면 선택한 유형만 사용합니다.",
         "evaluation_mode": "무엇을 점검할지 고릅니다. 블라인드 풀이는 정답을 지우고 직접 풀게 해 복수 정답을 잡아내고, 정밀 검토는 근거와 선지 설계를 진단하며, 난이도 점검은 목표 등급에 실제로 맞는지 봅니다.",
     }
@@ -413,7 +414,10 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(8)
 
-        grid.addWidget(self._make_field_label("문항 수", self.FIELD_HELP_TEXTS["question_count"]), 0, 0)
+        self.question_count_label_widget = self._make_field_label(
+            "문항 수", self.FIELD_HELP_TEXTS["question_count"]
+        )
+        grid.addWidget(self.question_count_label_widget, 0, 0)
         self.question_count_spin = QSpinBox()
         self.question_count_spin.setRange(1, 80)
         self.question_count_spin.setValue(1)
@@ -469,6 +473,21 @@ class MainWindow(QMainWindow):
         self.question_type_picker = QuestionTypePicker()
         self.question_type_picker.setVisible(False)
         ql.addWidget(self.question_type_picker)
+
+        self.section_count_label = QLabel("")
+        self.section_count_label.setObjectName("sectionHint")
+        self.section_count_label.setWordWrap(True)
+        self.section_count_label.setVisible(False)
+        ql.addWidget(self.section_count_label)
+
+        self.section_count_container = QWidget()
+        self.section_count_layout = QGridLayout(self.section_count_container)
+        self.section_count_layout.setContentsMargins(0, 0, 0, 0)
+        self.section_count_layout.setHorizontalSpacing(10)
+        self.section_count_layout.setVerticalSpacing(6)
+        self.section_count_container.setVisible(False)
+        self.section_count_spins: dict[str, QSpinBox] = {}
+        ql.addWidget(self.section_count_container)
 
         content_layout.addWidget(q_section)
 
@@ -927,6 +946,7 @@ class MainWindow(QMainWindow):
             "modules": self.module_group.selected_names(),
             "manual_types_enabled": self.manual_types_checkbox.isChecked(),
             "manual_types": self.question_type_picker.selected_names(),
+            "section_counts": self._selected_section_counts(),
             "exam_mode": self.exam_mode_combo.currentText(),
             "output_type": self.output_type_combo.currentText(),
             "curriculum": self.curriculum_edit.text(),
@@ -955,6 +975,12 @@ class MainWindow(QMainWindow):
         self._set_combo_text(self.exam_mode_combo, str(session.get("exam_mode", "")))
         self._set_combo_text(self.output_type_combo, str(session.get("output_type", "")))
         self.curriculum_edit.setText(str(session.get("curriculum", "")))
+        saved_counts = session.get("section_counts")
+        if isinstance(saved_counts, dict):
+            for key, spin in self.section_count_spins.items():
+                value = saved_counts.get(key)
+                if isinstance(value, int):
+                    spin.setValue(value)
 
         # Combo values may have disappeared (a user category was deleted, say),
         # so set each only when the entry still exists.
@@ -1154,10 +1180,10 @@ class MainWindow(QMainWindow):
             return
 
         self.output_type_description_label.setText(output_type.description)
+        self._rebuild_section_counts(output_type)
 
         wants_questions = output_type.includes_questions
         for widget in (
-            self.question_count_spin,
             self.question_style_combo,
             self.set_style_combo,
             self.scoring_scheme_combo,
@@ -1165,8 +1191,70 @@ class MainWindow(QMainWindow):
             self.manual_types_checkbox,
         ):
             widget.setEnabled(wants_questions)
+
+        # The global count is meaningless once each format carries its own,
+        # so it stays disabled even when the type does have questions.
+        uses_global_count = wants_questions and not output_type.question_sections
+        self.question_count_spin.setEnabled(uses_global_count)
+        self.question_count_label_widget.setEnabled(uses_global_count)
         if not wants_questions:
             self.question_type_picker.setVisible(False)
+
+    def _rebuild_section_counts(self, output_type) -> None:
+        """Show one spin box per question format the output type declares.
+
+        Types that mix formats (서술형 / 빈칸 / OX / 객관식) need a count each —
+        a single global number cannot express them, and hardcoding the counts in
+        the template left the user unable to change them at all.
+        """
+        while self.section_count_layout.count():
+            item = self.section_count_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.section_count_spins.clear()
+
+        sections = output_type.question_sections if output_type else []
+        has_sections = bool(sections)
+
+        self.section_count_container.setVisible(has_sections)
+        self.section_count_label.setVisible(has_sections)
+
+        if not has_sections:
+            return
+
+        self.section_count_label.setText(
+            "이 유형은 형식마다 문항 수를 따로 정합니다. 0으로 두면 그 형식은 만들지 않습니다."
+        )
+        for row, section in enumerate(sections):
+            label = QLabel(section.label)
+            label.setObjectName("fieldLabel")
+            label.setToolTip(self.FIELD_HELP_TEXTS["section_counts"])
+            self.section_count_layout.addWidget(label, row, 0)
+
+            spin = QSpinBox()
+            spin.setRange(section.minimum, section.maximum)
+            spin.setValue(section.default)
+            spin.setToolTip(self.FIELD_HELP_TEXTS["section_counts"])
+            spin.valueChanged.connect(self._update_section_total)
+            self.section_count_spins[section.key] = spin
+            self.section_count_layout.addWidget(spin, row, 1)
+
+        self.section_count_layout.setColumnStretch(0, 2)
+        self.section_count_layout.setColumnStretch(1, 3)
+        self._update_section_total()
+
+    def _update_section_total(self) -> None:
+        if not self.section_count_spins:
+            return
+        total = sum(spin.value() for spin in self.section_count_spins.values())
+        self.section_count_label.setText(
+            f"형식마다 문항 수를 따로 정합니다. 합계 {total}개."
+            " 0으로 두면 그 형식은 만들지 않습니다."
+        )
+
+    def _selected_section_counts(self) -> dict[str, int]:
+        return {key: spin.value() for key, spin in self.section_count_spins.items()}
 
     def _on_manual_types_toggled(self, checked: bool) -> None:
         """Switch between automatic type assignment and a hand-picked list."""
@@ -1729,6 +1817,7 @@ class MainWindow(QMainWindow):
             exam_mode=self.exam_mode_combo.currentText().strip(),
             output_type=self.output_type_combo.currentText().strip(),
             curriculum_context=self.curriculum_edit.text().strip(),
+            section_counts=self._selected_section_counts(),
         )
 
     def _validate_inputs(self) -> tuple[str, str, str, int] | None:

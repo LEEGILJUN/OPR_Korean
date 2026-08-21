@@ -10,6 +10,7 @@ from .models import (
     EvaluationMode,
     ExamMode,
     OutputType,
+    QuestionSection,
     QuestionType,
     RotationAnchor,
 )
@@ -403,11 +404,45 @@ class TemplateLoader:
                         if str(name).strip()
                     ],
                     count_applies_to=str(item.get("count_applies_to", "")).strip(),
+                    question_sections=self._build_question_sections(item.get("question_sections")),
                 )
             )
         if not result:
             raise TemplateLoadError("사용 가능한 산출물 유형이 없습니다.")
         return result
+
+    def _build_question_sections(self, raw: object) -> list[QuestionSection]:
+        """Parse the per-format question counts an output type declares."""
+        if not isinstance(raw, list):
+            return []
+        sections: list[QuestionSection] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                raise TemplateLoadError("문항 형식별 개수 항목 형식이 올바르지 않습니다.")
+            key = str(item.get("key", "")).strip()
+            label = str(item.get("label", "")).strip()
+            if not key or not label:
+                continue
+            try:
+                default = int(item.get("default", 0))
+                minimum = int(item.get("min", 0))
+                maximum = int(item.get("max", max(default, minimum)))
+            except (TypeError, ValueError) as exc:
+                raise TemplateLoadError(
+                    f"문항 형식 '{label}'의 개수 설정이 숫자가 아닙니다."
+                ) from exc
+            if minimum > maximum:
+                raise TemplateLoadError(f"문항 형식 '{label}'의 최소값이 최대값보다 큽니다.")
+            sections.append(
+                QuestionSection(
+                    key=key,
+                    label=label,
+                    default=min(max(default, minimum), maximum),
+                    minimum=minimum,
+                    maximum=maximum,
+                )
+            )
+        return sections
 
     def output_type_labels(self, category: str | None = None) -> list[str]:
         """Return output type labels, optionally limited to one exam area.

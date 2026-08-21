@@ -265,9 +265,14 @@ class PromptBuilder:
         lines.append(f"영역: {request.category}")
         lines.append(f"프롬프트 버전: {request.version}")
         if wants_questions:
-            scope = output_type.count_applies_to if output_type else ""
-            label = f"{scope} 문항 수" if scope else "문항 수"
-            lines.append(f"{label}: {request.question_count}개")
+            sections = output_type.question_sections if output_type else []
+            if sections:
+                for section in sections:
+                    count = self._section_count(request, section)
+                    lines.append(f"{section.label} 문항 수: {count}개")
+                lines.append(f"만들 문항 합계: {self._total_question_count(request, output_type)}개")
+            else:
+                lines.append(f"문항 수: {request.question_count}개")
         lines.append(f"난이도: {request.difficulty}")
         lines.append(f"목표 수준: {difficulty_profile.target_band}")
         if wants_questions:
@@ -439,14 +444,41 @@ class PromptBuilder:
         because it lands at the very end of the prompt it is the instruction the model
         actually follows — so the whole worksheet shrinks to N items.
         """
-        scope = output_type.count_applies_to if output_type else ""
-        if not scope:
+        sections = output_type.question_sections if output_type else []
+        if not sections:
             return [f"총 {request.question_count}개의 문항을 작성하라."]
-        return [
-            f"{scope} 문항은 {request.question_count}개 작성하라.",
-            f"이 개수는 {scope}에만 적용된다."
-            " 다른 형식의 문항 수는 '산출물 구성'에 적힌 개수를 그대로 따르고, 그 개수를 줄이지 마라.",
+
+        wanted = [
+            (section.label, self._section_count(request, section)) for section in sections
         ]
+        active = [f"{label} {count}개" for label, count in wanted if count > 0]
+        skipped = [label for label, count in wanted if count == 0]
+
+        lines = [
+            "형식별로 정확히 아래 개수만큼 작성하라: " + ", ".join(active) + ".",
+            f"합계 {self._total_question_count(request, output_type)}개다."
+            " 어느 형식도 지정된 개수보다 적게 만들지 마라.",
+        ]
+        if skipped:
+            lines.append(f"다음 형식은 만들지 마라: {', '.join(skipped)}.")
+        return lines
+
+    def _section_count(self, request: PromptRequest, section) -> int:
+        """Requested count for one format, clamped to what the format allows."""
+        raw = request.section_counts.get(section.key, section.default)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = section.default
+        return min(max(value, section.minimum), section.maximum)
+
+    def _total_question_count(
+        self, request: PromptRequest, output_type: OutputType | None
+    ) -> int:
+        sections = output_type.question_sections if output_type else []
+        if not sections:
+            return request.question_count
+        return sum(self._section_count(request, section) for section in sections)
 
     def _answer_layout_guidance(self, answer_layout: str) -> list[str]:
         """Where the explanations go relative to the questions.

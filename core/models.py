@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -21,6 +21,7 @@ class PromptRequest:
     exam_mode: str = "csat"
     output_type: str = "question_set"
     curriculum_context: str = ""
+    section_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -146,6 +147,17 @@ class ExamMode:
 
 
 @dataclass(slots=True)
+class QuestionSection:
+    """One question format inside an output type, with its own count."""
+
+    key: str
+    label: str
+    default: int
+    minimum: int
+    maximum: int
+
+
+@dataclass(slots=True)
 class OutputType:
     """What kind of document the prompt should produce."""
 
@@ -158,3 +170,4 @@ class OutputType:
     instructions: list[str]
     categories: list[str]  # 비어 있으면 모든 출제 영역에서 사용 가능
     count_applies_to: str = ""  # 비어 있으면 문항 수 설정이 전체 문항 수를 뜻한다
+    question_sections: list[QuestionSection] = field(default_factory=list)

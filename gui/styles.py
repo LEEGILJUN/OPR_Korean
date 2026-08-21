@@ -342,6 +342,15 @@ def build_stylesheet(font_scale: int = 100) -> str:
         border-color: {c["accent"]};
     }}
 
+    /* ============ Disabled ============ */
+    QComboBox:disabled, QSpinBox:disabled, QLineEdit:disabled {{
+        background: {c["bg_hover"]};
+        color: {c["text_hint"]};
+        border-color: {c["border_section"]};
+    }}
+    QLabel:disabled {{ color: {c["text_hint"]}; }}
+    QCheckBox:disabled {{ color: {c["text_hint"]}; }}
+
     /* ============ Tooltip ============ */
     QToolTip {{
         background: {c["toast_bg"]};

@@ -204,9 +204,11 @@ def check_long_form_protocol(loader: TemplateLoader) -> None:
     the per-section counts, and an explicit permission to stop and ask. Both are
     cheap for the model to obey and expensive for the user.
     """
+    from dataclasses import replace
+
     builder = PromptBuilder(loader)
     for output_type in loader.load_output_types():
-        if not output_type.count_applies_to:
+        if not output_type.question_sections:
             continue
         request = PromptRequest(
             passage="검증용 지문입니다.",
@@ -227,8 +229,22 @@ def check_long_form_protocol(loader: TemplateLoader) -> None:
         assert "총 15개의 문항을 작성하라" not in prompt, (
             f"형식별 개수를 정하는 유형인데 전체 문항 수 지시가 남아 있습니다: {label}"
         )
-        assert f"{output_type.count_applies_to} 문항은 15개 작성하라" in prompt, (
-            f"문항 수 적용 범위가 프롬프트에 드러나지 않습니다: {label}"
+        # Each format's count must reach the prompt, and a zero must remove it.
+        for section in output_type.question_sections:
+            assert f"{section.label} {section.default}개" in prompt, (
+                f"형식별 문항 수가 프롬프트에 없습니다: {label} / {section.label}"
+            )
+
+        zeroed = output_type.question_sections[0]
+        muted = builder.build(
+            replace(request, section_counts={zeroed.key: 0}),
+            builder.plan_variation(request, []),
+        )
+        assert f"다음 형식은 만들지 마라: {zeroed.label}" in muted, (
+            f"0으로 지정한 형식을 빼라는 지시가 없습니다: {label} / {zeroed.label}"
+        )
+        assert f"{zeroed.label} {zeroed.default}개" not in muted, (
+            f"0으로 지정했는데 기본 개수가 남아 있습니다: {label} / {zeroed.label}"
         )
         for stale in ("작성할까요", "물은 뒤 계속하라"):
             assert stale not in prompt, (
@@ -237,7 +253,7 @@ def check_long_form_protocol(loader: TemplateLoader) -> None:
         assert "스스로 멈추거나 계속할지 묻지 마라" in prompt, f"조기 종료 방지 지시 없음: {label}"
         assert "이하 생략" in prompt, f"뭉개기 금지 지시 없음: {label}"
 
-    print("  분량 프로토콜: 조기 종료·뭉개기 방지 지시 확인, 문항 수 모순 없음")
+    print("  분량 프로토콜: 조기 종료·뭉개기 방지 확인, 형식별 문항 수 반영 확인")
 
 
 def check_evaluation(loader: TemplateLoader) -> None:
