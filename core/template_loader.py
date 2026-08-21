@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 
 from .file_utils import config_root, templates_root, user_data_root
-from .models import DifficultyProfile, EvaluationMode, QuestionType, RotationAnchor
+from .models import (
+    DifficultyProfile,
+    EvaluationMode,
+    ExamMode,
+    OutputType,
+    QuestionType,
+    RotationAnchor,
+)
 
 
 class TemplateLoadError(RuntimeError):
@@ -76,6 +83,8 @@ class TemplateLoader:
         self.rotation_anchors_path = config_root() / "rotation_anchors.json"
         self.evaluation_criteria_path = config_root() / "evaluation_criteria.json"
         self.user_guide_path = config_root() / "user_guide.json"
+        self.exam_modes_path = config_root() / "exam_modes.json"
+        self.output_types_path = config_root() / "output_types.json"
 
     def category_names(self) -> list[str]:
         names = list(self.categories.keys())
@@ -88,8 +97,14 @@ class TemplateLoader:
     def module_names(self) -> list[str]:
         return list(self.modules.keys())
 
-    def difficulty_names(self) -> list[str]:
-        return [profile.label for profile in self.load_difficulty_profiles()]
+    def difficulty_names(self, exam_mode: str | None = None) -> list[str]:
+        """Return difficulty labels, optionally limited to one exam mode."""
+        profiles = self.load_difficulty_profiles()
+        if exam_mode:
+            scoped = [profile for profile in profiles if profile.mode == exam_mode]
+            if scoped:
+                return [profile.label for profile in scoped]
+        return [profile.label for profile in profiles]
 
     def load_common_template(self) -> str:
         return self._read_text(self.root / "common.txt")
@@ -147,6 +162,7 @@ class TemplateLoader:
                     target_band=str(item.get("target_band", "")).strip(),
                     summary=str(item.get("summary", "")).strip(),
                     guidance=[line.strip() for line in guidance if str(line).strip()],
+                    mode=str(item.get("mode", "csat")).strip() or "csat",
                 )
             )
 
@@ -295,6 +311,108 @@ class TemplateLoader:
         available = ", ".join(self.evaluation_mode_labels())
         raise TemplateLoadError(
             f"검증 모드 '{label}' 을 찾을 수 없습니다.\n사용 가능 항목: {available}"
+        )
+
+    def load_exam_modes(self) -> list[ExamMode]:
+        """Return the exam contexts (CSAT vs school) the app can target."""
+        payload = self._read_json(self.exam_modes_path, "시험 모드 설정 파일")
+        if payload is None:
+            raise TemplateLoadError(
+                f"시험 모드 설정 파일을 찾을 수 없습니다.\n경로: {self.exam_modes_path}"
+            )
+
+        modes = payload.get("modes", [])
+        if not isinstance(modes, list) or not modes:
+            raise TemplateLoadError(
+                f"시험 모드 설정 형식이 올바르지 않습니다.\n경로: {self.exam_modes_path}"
+            )
+
+        result: list[ExamMode] = []
+        for item in modes:
+            if not isinstance(item, dict):
+                raise TemplateLoadError("시험 모드 항목 형식이 올바르지 않습니다.")
+            label = str(item.get("label", "")).strip()
+            if not label:
+                continue
+            guidance = item.get("guidance", [])
+            if not isinstance(guidance, list):
+                guidance = []
+            result.append(
+                ExamMode(
+                    mode_id=str(item.get("id", "")).strip(),
+                    label=label,
+                    description=str(item.get("description", "")).strip(),
+                    context_label=str(item.get("context_label", "")).strip(),
+                    context_help=str(item.get("context_help", "")).strip(),
+                    guidance=[str(line).strip() for line in guidance if str(line).strip()],
+                )
+            )
+        if not result:
+            raise TemplateLoadError("사용 가능한 시험 모드가 없습니다.")
+        return result
+
+    def exam_mode_labels(self) -> list[str]:
+        return [mode.label for mode in self.load_exam_modes()]
+
+    def load_exam_mode(self, label: str) -> ExamMode:
+        for mode in self.load_exam_modes():
+            if mode.label == label:
+                return mode
+        available = ", ".join(self.exam_mode_labels())
+        raise TemplateLoadError(
+            f"시험 모드 '{label}' 을 찾을 수 없습니다.\n사용 가능 항목: {available}"
+        )
+
+    def load_output_types(self) -> list[OutputType]:
+        """Return the kinds of document the prompt can be asked to produce."""
+        payload = self._read_json(self.output_types_path, "산출물 유형 설정 파일")
+        if payload is None:
+            raise TemplateLoadError(
+                f"산출물 유형 설정 파일을 찾을 수 없습니다.\n경로: {self.output_types_path}"
+            )
+
+        types = payload.get("types", [])
+        if not isinstance(types, list) or not types:
+            raise TemplateLoadError(
+                f"산출물 유형 설정 형식이 올바르지 않습니다.\n경로: {self.output_types_path}"
+            )
+
+        result: list[OutputType] = []
+        for item in types:
+            if not isinstance(item, dict):
+                raise TemplateLoadError("산출물 유형 항목 형식이 올바르지 않습니다.")
+            label = str(item.get("label", "")).strip()
+            if not label:
+                continue
+            structure = item.get("structure", [])
+            instructions = item.get("instructions", [])
+            if not isinstance(structure, list) or not isinstance(instructions, list):
+                raise TemplateLoadError("산출물 유형의 structure와 instructions는 배열이어야 합니다.")
+            result.append(
+                OutputType(
+                    type_id=str(item.get("id", "")).strip(),
+                    label=label,
+                    description=str(item.get("description", "")).strip(),
+                    includes_questions=bool(item.get("includes_questions", True)),
+                    needs_passage=bool(item.get("needs_passage", True)),
+                    structure=[str(line).strip() for line in structure if str(line).strip()],
+                    instructions=[str(line).strip() for line in instructions if str(line).strip()],
+                )
+            )
+        if not result:
+            raise TemplateLoadError("사용 가능한 산출물 유형이 없습니다.")
+        return result
+
+    def output_type_labels(self) -> list[str]:
+        return [output.label for output in self.load_output_types()]
+
+    def load_output_type(self, label: str) -> OutputType:
+        for output in self.load_output_types():
+            if output.label == label:
+                return output
+        available = ", ".join(self.output_type_labels())
+        raise TemplateLoadError(
+            f"산출물 유형 '{label}' 을 찾을 수 없습니다.\n사용 가능 항목: {available}"
         )
 
     def load_user_guide(self) -> dict:

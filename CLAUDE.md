@@ -77,7 +77,9 @@ gui/
 - 영역별 지시: `templates/<category>.txt` — 이름 매핑은 `TemplateLoader.categories`
 - 버전 지시: `templates/versions/{basic,advanced,ultimate}.txt` (파일 없으면 `version_fallbacks` 사용)
 - 모듈 지시: `templates/modules/*.txt` — 매핑은 `TemplateLoader.modules`
-- 난이도(1~9등급): `config/difficulty_profiles.json`
+- 평가 맥락(수능/내신): `config/exam_modes.json`
+- 산출물 유형(문항 세트·학습지·해제·문법표·모의고사): `config/output_types.json`
+- 난이도: `config/difficulty_profiles.json` — 각 프로파일의 `mode`가 `csat`/`school`을 가른다
 - 영역별 문항 유형: `config/question_types.json` — 없는 영역은 `default` 목록으로 대체
 - 회차별 초점 앵커: `config/rotation_anchors.json` — 회차 % 개수로 순환
 - 기본 프리셋: `config/presets.json`
@@ -104,6 +106,23 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
   `MainWindow._apply_appearance()`에서 불러 준다.
 - QSS의 `font-size: Npx`는 빌드 시점에 `_scale_fonts()`가 배율을 적용한다.
   새 규칙에도 px 단위를 쓰면 자동으로 따라간다.
+
+## 산출물 유형과 평가 맥락
+
+프롬프트는 두 축으로 달라진다.
+
+- **평가 맥락**(`ExamMode`) — `csat`는 1~9등급 축, `school`은 내신 기초~최고난도 축을 쓰고
+  교과 연계 입력란이 열린다. `difficulty_names(mode_id)`가 축을 갈라 준다.
+- **산출물 유형**(`OutputType`) — 문항 세트 / 학습지 전체 / 작품 해제만 / 문법 개념 정리표 /
+  미니 모의고사. `structure`와 `instructions`가 "산출물 구성" 섹션이 된다.
+
+`includes_questions: false`인 유형(작품 해제만)은 문항 관련 섹션이 **통째로 빠진다** —
+문항 유형 배분, 추가 모듈, 문항 중심 출력 지시가 모두 제외되고, `common.txt` 대신
+`_analysis_only_rules()`가 들어간다. common.txt는 전부 문항 설계를 전제로 쓰여 있어서
+걸러 쓰는 것보다 별도 기준을 두는 편이 정확하다.
+
+새 산출물 유형을 추가할 때는 `config/output_types.json`에 항목만 넣으면 된다.
+코드 수정은 필요 없고, `tools/smoke_test.py`의 `check_output_types()`가 자동으로 검사한다.
 
 ## 문항 다양성 설계 (중복 방지)
 

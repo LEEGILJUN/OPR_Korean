@@ -123,6 +123,55 @@ def check_variation(loader: TemplateLoader) -> None:
         print(f"  3회차 {rounds[2]}")
 
 
+def check_output_types(loader: TemplateLoader) -> None:
+    """Every output type must build, and analysis-only ones must drop question talk."""
+    builder = PromptBuilder(loader)
+    modes = loader.load_exam_modes()
+    assert modes, "시험 모드가 비어 있습니다."
+
+    for mode in modes:
+        names = loader.difficulty_names(mode.mode_id)
+        assert names, f"난이도 목록이 비어 있습니다: {mode.label}"
+
+    csat = loader.difficulty_names("csat")
+    school = loader.difficulty_names("school")
+    assert not set(csat) & set(school), "수능/내신 난이도 축이 섞였습니다."
+
+    for output_type in loader.load_output_types():
+        request = PromptRequest(
+            passage="검증용 지문입니다. 둘째 문단입니다.",
+            example_text="",
+            category="현대시",
+            version="고급형",
+            selected_modules=["CoT 포함"],
+            question_count=5,
+            difficulty=school[0],
+            question_style="객관식·단답형·서술형 혼합",
+            set_style="독립 문항형",
+            scoring_scheme="균등 배점",
+            exam_mode=modes[-1].label,
+            output_type=output_type.label,
+            curriculum_context="[비상] 국어2 Ⅰ. 단원명",
+        )
+        plan = builder.plan_variation(request, [])
+        prompt = builder.build(request, plan)
+
+        assert "산출물 구성" in prompt, f"산출물 구성 섹션 없음: {output_type.label}"
+        assert output_type.label in prompt, f"산출물 이름 누락: {output_type.label}"
+        assert "교과 연계" in prompt, f"교과 연계 섹션 없음: {output_type.label}"
+
+        if output_type.includes_questions:
+            assert "문항 구성 설계" in prompt, f"문항 배분 없음: {output_type.label}"
+        else:
+            assert "문항 구성 설계" not in prompt, (
+                f"해제 전용인데 문항 배분이 들어갔습니다: {output_type.label}"
+            )
+            assert "문항은 만들지 마라" in prompt, f"문항 금지 지시 없음: {output_type.label}"
+
+    print(f"  시험 모드 {len(modes)}개 (수능 {len(csat)}단계 / 내신 {len(school)}단계)")
+    print(f"  산출물 유형 {len(loader.load_output_types())}개 모두 조립 성공")
+
+
 def check_evaluation(loader: TemplateLoader) -> None:
     """Blind mode must not leak the answer key; other modes must keep it."""
     builder = EvaluationBuilder(loader)
@@ -192,17 +241,19 @@ def check_window() -> None:
 
 
 def main() -> int:
-    print("[1/6] 템플릿 로더")
+    print("[1/7] 템플릿 로더")
     loader = check_loaders()
-    print("[2/6] 프리셋 로더")
+    print("[2/7] 프리셋 로더")
     check_presets()
-    print("[3/6] 프롬프트 빌더")
+    print("[3/7] 프롬프트 빌더")
     check_builder(loader)
-    print("[4/6] 문항 다양성 (유형 배분 + 회차 이력)")
+    print("[4/7] 문항 다양성 (유형 배분 + 회차 이력)")
     check_variation(loader)
-    print("[5/6] 생성 결과 검증 (정답 제거 + 검증 프롬프트)")
+    print("[5/7] 산출물 유형 · 시험 모드")
+    check_output_types(loader)
+    print("[6/7] 생성 결과 검증 (정답 제거 + 검증 프롬프트)")
     check_evaluation(loader)
-    print("[6/6] GUI 생성 (offscreen)")
+    print("[7/7] GUI 생성 (offscreen)")
     check_window()
     print("\n모든 확인 통과.")
     return 0

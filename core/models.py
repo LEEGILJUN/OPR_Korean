@@ -17,6 +17,9 @@ class PromptRequest:
     question_style: str
     set_style: str
     scoring_scheme: str
+    exam_mode: str = "csat"
+    output_type: str = "question_set"
+    curriculum_context: str = ""
 
 
 @dataclass(slots=True)
@@ -55,12 +58,13 @@ class PromptPreset:
 
 @dataclass(slots=True)
 class DifficultyProfile:
-    """Difficulty guidance derived from CSAT grade-target intent."""
+    """Difficulty guidance for one target level within an exam mode."""
 
     label: str
     target_band: str
     summary: str
     guidance: list[str]
+    mode: str = "csat"
 
 
 @dataclass(slots=True)
@@ -126,3 +130,28 @@ class EvaluationRequest:
     difficulty: str
     question_style: str
     mode: EvaluationMode
+
+
+@dataclass(slots=True)
+class ExamMode:
+    """Whether the material targets the CSAT or a school's own exam."""
+
+    mode_id: str
+    label: str
+    description: str
+    context_label: str
+    context_help: str
+    guidance: list[str]
+
+
+@dataclass(slots=True)
+class OutputType:
+    """What kind of document the prompt should produce."""
+
+    type_id: str
+    label: str
+    description: str
+    includes_questions: bool
+    needs_passage: bool
+    structure: list[str]
+    instructions: list[str]

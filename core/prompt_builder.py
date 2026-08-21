@@ -3,7 +3,9 @@ from __future__ import annotations
 from .file_utils import passage_fingerprint
 from .models import (
     DifficultyProfile,
+    ExamMode,
     GenerationRun,
+    OutputType,
     PromptRequest,
     QuestionType,
     RotationAnchor,
@@ -24,19 +26,78 @@ class PromptBuilder:
         version_template = self._load_version_template(request.version)
         module_templates = self._load_module_templates(request.selected_modules)
         difficulty_profile = self.template_loader.load_difficulty_profile(request.difficulty)
+        exam_mode = self._load_exam_mode(request.exam_mode)
+        output_type = self._load_output_type(request.output_type)
+
+        # An analysis-only document has no questions, so every question-shaped
+        # instruction has to drop out rather than be quietly ignored.
+        wants_questions = output_type is None or output_type.includes_questions
 
         sections = [
-            self._build_goal_section(request, difficulty_profile),
-            self._build_common_rules_section(common_template, version_template, difficulty_profile),
+            self._build_goal_section(request, difficulty_profile, exam_mode, output_type),
+            self._build_curriculum_section(request, exam_mode),
+            self._build_common_rules_section(
+                common_template, version_template, difficulty_profile, exam_mode, wants_questions
+            ),
             self._build_category_section(request.category, category_template),
-            self._build_variation_section(variation),
-            self._build_modules_section(module_templates),
+            self._build_variation_section(variation) if wants_questions else None,
+            self._build_modules_section(module_templates) if wants_questions else None,
             self._build_passage_section(request.passage),
             self._build_example_section(request.example_text),
-            self._build_output_format_section(request, difficulty_profile),
+            self._build_document_structure_section(output_type),
+            self._build_output_format_section(request, difficulty_profile, output_type),
         ]
 
         return self._join_sections(sections)
+
+    def _load_exam_mode(self, mode_label: str) -> ExamMode | None:
+        if not mode_label.strip():
+            return None
+        try:
+            return self.template_loader.load_exam_mode(mode_label)
+        except Exception:
+            # An unknown mode should not block generation; the prompt simply
+            # falls back to the neutral wording.
+            return None
+
+    def _load_output_type(self, type_label: str) -> OutputType | None:
+        if not type_label.strip():
+            return None
+        try:
+            return self.template_loader.load_output_type(type_label)
+        except Exception:
+            return None
+
+    def _build_curriculum_section(
+        self, request: PromptRequest, exam_mode: ExamMode | None
+    ) -> str | None:
+        context = request.curriculum_context.strip()
+        if not context:
+            return None
+        label = (exam_mode.context_label if exam_mode else "") or "교과 연계 정보"
+        return self._section(
+            "교과 연계",
+            [
+                f"[{label}] {context}",
+                self._bullet_block(
+                    "위 교과서와 단원의 학습 목표에 맞추어 설계하라.",
+                    "해당 단원에서 다루는 개념과 용어를 우선 사용하라.",
+                    "단원 범위를 벗어나는 개념을 새로 도입하지 마라.",
+                ),
+            ],
+        )
+
+    def _build_document_structure_section(self, output_type: OutputType | None) -> str | None:
+        if output_type is None or not output_type.structure:
+            return None
+        blocks = [
+            f"[산출물] {output_type.label}",
+            "아래 구성을 순서대로 모두 포함하라.\n"
+            + "\n".join(f"- {line}" for line in output_type.structure),
+        ]
+        if output_type.instructions:
+            blocks.append(self._bullet_block(*output_type.instructions))
+        return self._section("산출물 구성", blocks)
 
     def plan_variation(
         self,
@@ -185,33 +246,73 @@ class PromptBuilder:
             for module_name in module_names
         ]
 
-    def _build_goal_section(self, request: PromptRequest, difficulty_profile: DifficultyProfile) -> str:
-        return self._section(
-            "작업 목표",
-            [self._bullet_block(
-                "아래 지문을 바탕으로 한국 수능 국어형 문항 초안을 설계하라.",
-                f"영역: {request.category}",
-                f"프롬프트 버전: {request.version}",
-                f"문항 수: {request.question_count}개",
-                f"난이도: {request.difficulty}",
-                f"목표 수준: {difficulty_profile.target_band}",
-                f"문항 형식: {request.question_style}",
-                f"출제 묶음: {request.set_style}",
-                f"배점 구조: {request.scoring_scheme}",
-            )],
+    def _build_goal_section(
+        self,
+        request: PromptRequest,
+        difficulty_profile: DifficultyProfile,
+        exam_mode: ExamMode | None,
+        output_type: OutputType | None,
+    ) -> str:
+        wants_questions = output_type is None or output_type.includes_questions
+        headline = (
+            f"아래 지문을 바탕으로 '{output_type.label}'을(를) 작성하라."
+            if output_type
+            else "아래 지문을 바탕으로 국어과 문항 초안을 설계하라."
         )
+        lines = [headline]
+        if exam_mode:
+            lines.append(f"평가 맥락: {exam_mode.label}")
+        lines.append(f"영역: {request.category}")
+        lines.append(f"프롬프트 버전: {request.version}")
+        if wants_questions:
+            lines.append(f"문항 수: {request.question_count}개")
+        lines.append(f"난이도: {request.difficulty}")
+        lines.append(f"목표 수준: {difficulty_profile.target_band}")
+        if wants_questions:
+            lines.extend(
+                [
+                    f"문항 형식: {request.question_style}",
+                    f"출제 묶음: {request.set_style}",
+                    f"배점 구조: {request.scoring_scheme}",
+                ]
+            )
+        return self._section("작업 목표", [self._bullet_block(*lines)])
 
     def _build_common_rules_section(
         self,
         common_template: str,
         version_template: str,
         difficulty_profile: DifficultyProfile,
+        exam_mode: ExamMode | None,
+        wants_questions: bool,
     ) -> str:
-        lines = [common_template]
-        if version_template:
+        lines = [common_template if wants_questions else self._analysis_only_rules()]
+        if exam_mode and exam_mode.guidance:
+            lines.append(
+                f"[평가 맥락] {exam_mode.label}\n"
+                + "\n".join(f"- {line}" for line in exam_mode.guidance)
+            )
+        if version_template and wants_questions:
             lines.append(self._build_version_guidance_block(version_template))
         lines.append(self._build_difficulty_guidance_block(difficulty_profile))
         return self._section("공통 규칙", lines)
+
+    def _analysis_only_rules(self) -> str:
+        """Rules for documents that analyse a work instead of testing on it.
+
+        common.txt is written entirely around question design, so an
+        analysis-only output needs its own baseline rather than a filtered one.
+        """
+        return "\n".join(
+            [
+                "당신은 한국 국어과 교재와 학습 자료를 작성하는 전문가 AI이다.",
+                "객관적 해석 원칙을 지켜, 지문과 보기에서 직접 확인되거나 합리적으로 추론 가능한 내용만 사용하라.",
+                "지문 근거를 벗어난 임의의 배경지식 확장, 감상 과잉, 상상적 해석은 피하라.",
+                "확정하기 어려운 해석은 단정하지 말고 근거와 함께 여지를 남겨 서술하라.",
+                "결과는 모두 한국어로 작성하라.",
+                "학생이 그대로 읽고 이해할 수 있는 문장으로 쓰되, 교과 용어는 정확히 사용하라.",
+            ]
+        )
 
     def _build_category_section(self, category_name: str, category_template: str) -> str:
         return self._section(
@@ -241,7 +342,20 @@ class PromptBuilder:
         self,
         request: PromptRequest,
         difficulty_profile: DifficultyProfile,
+        output_type: OutputType | None,
     ) -> str:
+        if output_type is not None and not output_type.includes_questions:
+            return self._section(
+                "출력 형식",
+                [self._bullet_block(
+                    "문항은 만들지 마라.",
+                    "각 항목을 소제목으로 구분해 읽기 쉽게 정리하라.",
+                    "표로 정리하라고 지시한 항목은 반드시 표 형태로 제시하라.",
+                    f"서술 수준은 '{request.difficulty}' 기준에 맞추어라.",
+                    f"'{request.difficulty}' 수준은 {difficulty_profile.summary}",
+                )],
+            )
+
         lines = self._bullet_block(
             f"총 {request.question_count}개의 문항을 작성하라.",
             "각 문항은 번호를 붙여 구분하라.",
@@ -285,6 +399,18 @@ class PromptBuilder:
             "서술형": [
                 "모든 문항은 서술형으로 작성하라.",
                 "선택지는 제시하지 말고, 모범 답안 요소와 채점 포인트를 함께 제시하라.",
+            ],
+            "단답형": [
+                "모든 문항은 단답형으로 작성하라.",
+                "'~를 찾아 쓰시오' 처럼 지문에서 근거를 직접 찾아 적게 하라.",
+                "정답은 지문에 실제로 등장하는 표현이어야 하며, 정답으로 인정되는 표현의 범위를 함께 밝혀라.",
+            ],
+            "객관식·단답형·서술형 혼합": [
+                "세 형식을 섞어 출제하되, 각 문항이 어떤 형식인지 분명히 드러나게 하라.",
+                "대략 객관식 6 : 단답형 2 : 서술형 2의 비율로 배분하고, 문항 수가 적으면 객관식을 우선하라.",
+                "객관식은 ①~⑤ 형식의 5지선다로 작성하라.",
+                "단답형은 '~를 찾아 쓰시오' 처럼 지문에서 근거를 직접 찾아 적게 하고, 정답 인정 범위를 밝혀라.",
+                "서술형은 모범 답안과 함께 채점 요소를 항목별로 나누어 제시하라.",
             ],
         }
         return mapping.get(question_style, ["문항 형식은 선택 설정에 맞게 작성하라."])

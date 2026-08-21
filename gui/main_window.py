@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -82,6 +83,9 @@ class MainWindow(QMainWindow):
 
     FIELD_HELP_TEXTS = {
         "preset": "자주 사용하는 설정 조합입니다. 적용을 누르면 출제영역, 버전, 난이도, 문항 수, 모듈이 한 번에 채워집니다.",
+        "exam_mode": "무엇을 대비하는 자료인지 고릅니다. 수능·모의고사는 1~9등급 축을, 중·고 내신은 기초~최고난도 축을 사용하고 교과 연계 입력란이 열립니다.",
+        "output_type": "만들 자료의 형태를 고릅니다. 문항만 만들지, 개념 정리와 작품 해제까지 포함한 학습지를 만들지, 해제만 만들지에 따라 프롬프트가 통째로 달라집니다.",
+        "curriculum": "교과서 출판사, 학년, 단원명을 적으면 그 단원의 학습 목표에 맞춰 설계합니다. 예: [비상] 국어2 Ⅰ. 나, 너, 우리가 만나는 길 (1) 문학의 해석과 생활화",
         "category": "출제할 수능 국어 영역 또는 사용자 정의 유형을 고릅니다. 선택한 유형에 따라 분석 지시와 문항 설계 기준이 달라집니다.",
         "version": "프롬프트의 설계 강도를 고릅니다. 기본형은 간결하고, 고급형은 구조화가 강화되며, Ultimate형은 해석 통제와 자기 점검까지 더 강하게 요구합니다.",
         "difficulty": "수능 상대평가 등급 목표를 고릅니다. 1등급은 최상위권 변별용, 9등급은 기초 확인용입니다.",
@@ -134,6 +138,7 @@ class MainWindow(QMainWindow):
         self.presets_by_label: dict[str, PromptPreset] = {}
         self.preset_load_error_message: str = ""
         self.evaluation_load_error_message: str = ""
+        self.setup_load_error_message: str = ""
         self.last_generated_request: PromptRequest | None = None
         self.last_generated_prompt: str = ""
         self.last_variation_plan: VariationPlan | None = None
@@ -188,6 +193,8 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status_bar)
 
         self._apply_appearance()
+        self._on_exam_mode_changed(self.exam_mode_combo.currentText())
+        self._on_output_type_changed(self.output_type_combo.currentText())
 
     # -------------------------------------------------------------------
     # Toolbar (preset bar at top)
@@ -299,6 +306,43 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(6)
 
         # -- Category section --
+        purpose_section = CollapsibleSection("무엇을 만들까", expanded=True)
+        pl = purpose_section.content_layout()
+
+        pl.addWidget(self._make_field_label("평가 맥락", self.FIELD_HELP_TEXTS["exam_mode"]))
+        self.exam_mode_combo = QComboBox()
+        self.exam_mode_combo.setToolTip(self.FIELD_HELP_TEXTS["exam_mode"])
+        try:
+            self.exam_mode_combo.addItems(self.template_loader.exam_mode_labels())
+        except TemplateLoadError as exc:
+            self.setup_load_error_message = str(exc)
+        self.exam_mode_combo.currentTextChanged.connect(self._on_exam_mode_changed)
+        pl.addWidget(self.exam_mode_combo)
+
+        pl.addWidget(self._make_field_label("산출물 유형", self.FIELD_HELP_TEXTS["output_type"]))
+        self.output_type_combo = QComboBox()
+        self.output_type_combo.setToolTip(self.FIELD_HELP_TEXTS["output_type"])
+        try:
+            self.output_type_combo.addItems(self.template_loader.output_type_labels())
+        except TemplateLoadError as exc:
+            self.setup_load_error_message = str(exc)
+        self.output_type_combo.currentTextChanged.connect(self._on_output_type_changed)
+        pl.addWidget(self.output_type_combo)
+
+        self.output_type_description_label = QLabel("")
+        self.output_type_description_label.setObjectName("sectionHint")
+        self.output_type_description_label.setWordWrap(True)
+        pl.addWidget(self.output_type_description_label)
+
+        self.curriculum_label = self._make_field_label("교과 연계", self.FIELD_HELP_TEXTS["curriculum"])
+        pl.addWidget(self.curriculum_label)
+        self.curriculum_edit = QLineEdit()
+        self.curriculum_edit.setPlaceholderText("[비상] 국어2 Ⅰ. 나, 너, 우리가 만나는 길 (1) …")
+        self.curriculum_edit.setToolTip(self.FIELD_HELP_TEXTS["curriculum"])
+        pl.addWidget(self.curriculum_edit)
+
+        content_layout.addWidget(purpose_section)
+
         cat_section = CollapsibleSection("출제 영역", expanded=True)
         cl = cat_section.content_layout()
 
@@ -365,7 +409,7 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(self._make_field_label("문항 수", self.FIELD_HELP_TEXTS["question_count"]), 0, 0)
         self.question_count_spin = QSpinBox()
-        self.question_count_spin.setRange(1, 20)
+        self.question_count_spin.setRange(1, 40)
         self.question_count_spin.setValue(1)
         self.question_count_spin.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.question_count_spin.setToolTip(self.FIELD_HELP_TEXTS["question_count"])
@@ -374,7 +418,10 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(self._make_field_label("문항 형식", self.FIELD_HELP_TEXTS["question_style"]), 1, 0)
         self.question_style_combo = QComboBox()
-        self.question_style_combo.addItems(["객관식 5지선다", "객관식 4지선다", "객관식 3지선다", "서술형"])
+        self.question_style_combo.addItems([
+            "객관식 5지선다", "객관식 4지선다", "객관식 3지선다",
+            "단답형", "서술형", "객관식·단답형·서술형 혼합",
+        ])
         self.question_style_combo.setToolTip(self.FIELD_HELP_TEXTS["question_style"])
         grid.addWidget(self.question_style_combo, 1, 1)
 
@@ -829,6 +876,8 @@ class MainWindow(QMainWindow):
         theme = "light" if str(self.app_settings.get("theme")) == "dark" else "dark"
         self.app_settings.set("theme", theme)
         self._apply_appearance()
+        self._on_exam_mode_changed(self.exam_mode_combo.currentText())
+        self._on_output_type_changed(self.output_type_combo.currentText())
         self._toast("어두운 화면으로 바꿨습니다." if theme == "dark" else "밝은 화면으로 바꿨습니다.", "info")
 
     def adjust_font_scale(self, delta: int) -> None:
@@ -838,6 +887,8 @@ class MainWindow(QMainWindow):
             return
         self.app_settings.set("font_scale", new_scale)
         self._apply_appearance()
+        self._on_exam_mode_changed(self.exam_mode_combo.currentText())
+        self._on_output_type_changed(self.output_type_combo.currentText())
         self._toast(f"글자 크기 {new_scale}%", "info")
 
     # -------------------------------------------------------------------
@@ -849,7 +900,10 @@ class MainWindow(QMainWindow):
         return {
             "passage": self.passage_edit.toPlainText(),
             "example": self.example_edit.toPlainText(),
-            "category": self.category_combo.currentText(),
+            "exam_mode": "무엇을 대비하는 자료인지 고릅니다. 수능·모의고사는 1~9등급 축을, 중·고 내신은 기초~최고난도 축을 사용하고 교과 연계 입력란이 열립니다.",
+        "output_type": "만들 자료의 형태를 고릅니다. 문항만 만들지, 개념 정리와 작품 해제까지 포함한 학습지를 만들지, 해제만 만들지에 따라 프롬프트가 통째로 달라집니다.",
+        "curriculum": "교과서 출판사, 학년, 단원명을 적으면 그 단원의 학습 목표에 맞춰 설계합니다. 예: [비상] 국어2 Ⅰ. 나, 너, 우리가 만나는 길 (1) 문학의 해석과 생활화",
+        "category": self.category_combo.currentText(),
             "version": self.version_combo.currentText(),
             "difficulty": self.difficulty_combo.currentText(),
             "question_count": self.question_count_spin.value(),
@@ -859,6 +913,9 @@ class MainWindow(QMainWindow):
             "modules": self.module_group.selected_names(),
             "manual_types_enabled": self.manual_types_checkbox.isChecked(),
             "manual_types": self.question_type_picker.selected_names(),
+            "exam_mode": self.exam_mode_combo.currentText(),
+            "output_type": self.output_type_combo.currentText(),
+            "curriculum": self.curriculum_edit.text(),
         }
 
     def _save_session(self) -> None:
@@ -880,6 +937,10 @@ class MainWindow(QMainWindow):
 
         self.passage_edit.setPlainText(passage)
         self.example_edit.setPlainText(str(session.get("example", "")))
+        # Mode first: it repopulates the difficulty list the next line depends on.
+        self._set_combo_text(self.exam_mode_combo, str(session.get("exam_mode", "")))
+        self._set_combo_text(self.output_type_combo, str(session.get("output_type", "")))
+        self.curriculum_edit.setText(str(session.get("curriculum", "")))
 
         # Combo values may have disappeared (a user category was deleted, say),
         # so set each only when the entry still exists.
@@ -1004,6 +1065,53 @@ class MainWindow(QMainWindow):
         if mode.strip_answers:
             text += "\n정답과 해설은 앱이 자동으로 제거한 뒤 프롬프트에 넣습니다."
         return text
+
+    def _on_exam_mode_changed(self, mode_label: str) -> None:
+        """Swap the difficulty axis and show the curriculum field only where it applies."""
+        if not hasattr(self, "difficulty_combo"):
+            return
+        try:
+            mode = self.template_loader.load_exam_mode(mode_label.strip())
+        except TemplateLoadError:
+            return
+
+        previous = self.difficulty_combo.currentText()
+        names = self.template_loader.difficulty_names(mode.mode_id)
+        with block_signals(self.difficulty_combo):
+            self.difficulty_combo.clear()
+            self.difficulty_combo.addItems(names)
+            index = self.difficulty_combo.findText(previous)
+            self.difficulty_combo.setCurrentIndex(index if index >= 0 else 0)
+
+        wants_context = bool(mode.context_label)
+        self.curriculum_label.setVisible(wants_context)
+        self.curriculum_edit.setVisible(wants_context)
+        if wants_context and mode.context_help:
+            self.curriculum_edit.setToolTip(mode.context_help)
+
+    def _on_output_type_changed(self, type_label: str) -> None:
+        """Grey out question settings for outputs that contain no questions."""
+        if not hasattr(self, "output_type_description_label"):
+            return
+        try:
+            output_type = self.template_loader.load_output_type(type_label.strip())
+        except TemplateLoadError:
+            self.output_type_description_label.setText("")
+            return
+
+        self.output_type_description_label.setText(output_type.description)
+
+        wants_questions = output_type.includes_questions
+        for widget in (
+            self.question_count_spin,
+            self.question_style_combo,
+            self.set_style_combo,
+            self.scoring_scheme_combo,
+            self.manual_types_checkbox,
+        ):
+            widget.setEnabled(wants_questions)
+        if not wants_questions:
+            self.question_type_picker.setVisible(False)
 
     def _on_manual_types_toggled(self, checked: bool) -> None:
         """Switch between automatic type assignment and a hand-picked list."""
@@ -1258,6 +1366,9 @@ class MainWindow(QMainWindow):
 
     def reset_all(self) -> None:
         self.preset_combo.setCurrentIndex(0)
+        self.exam_mode_combo.setCurrentIndex(0)
+        self.output_type_combo.setCurrentIndex(0)
+        self.curriculum_edit.clear()
         self.category_combo.setCurrentIndex(0)
         self.version_combo.setCurrentIndex(0)
         self.difficulty_combo.setCurrentIndex(0)
@@ -1421,7 +1532,11 @@ class MainWindow(QMainWindow):
         """Summarise what went into the prompt, next to the output title."""
         if not hasattr(self, "output_summary_label"):
             return
-        parts = [self.category_combo.currentText(), self.version_combo.currentText()]
+        parts = [
+            self.output_type_combo.currentText().split(" (")[0],
+            self.category_combo.currentText(),
+            self.version_combo.currentText(),
+        ]
         if variation is not None:
             parts.append(f"{variation.round_number}회차")
             parts.append(f"유형 {len(set(qt.name for qt in variation.assigned_types))}종")
@@ -1553,6 +1668,9 @@ class MainWindow(QMainWindow):
             question_style=self.question_style_combo.currentText().strip(),
             set_style=self.set_style_combo.currentText().strip(),
             scoring_scheme=self.scoring_scheme_combo.currentText().strip(),
+            exam_mode=self.exam_mode_combo.currentText().strip(),
+            output_type=self.output_type_combo.currentText().strip(),
+            curriculum_context=self.curriculum_edit.text().strip(),
         )
 
     def _validate_inputs(self) -> tuple[str, str, str, int] | None:
@@ -1638,6 +1756,9 @@ class MainWindow(QMainWindow):
             f"문항 형식: {request.question_style}",
             f"출제 묶음: {request.set_style}",
             f"배점 구조: {request.scoring_scheme}",
+            f"평가 맥락: {request.exam_mode}",
+            f"산출물 유형: {request.output_type}",
+            *([f"교과 연계: {request.curriculum_context}"] if request.curriculum_context else []),
             *request.selected_modules,
         ]
         if self.last_variation_plan is not None:
