@@ -398,6 +398,54 @@ pyinstaller --noconfirm --windowed --name CSATPromptGenerator --add-data "templa
 
 단일 실행 파일로 만들려면 `--onefile`을 추가합니다.
 
+## 윈도우 배포본 만들기 (USB 전달용)
+
+PyInstaller는 **크로스 컴파일을 지원하지 않습니다.** macOS에서 만든 `dist/`는
+macOS 전용 바이너리이므로 윈도우에서 실행되지 않습니다. 윈도우용 실행 파일은
+반드시 윈도우에서 빌드해야 합니다.
+
+윈도우 PC가 없어도 GitHub에서 자동으로 빌드할 수 있습니다.
+
+### 방법 1. GitHub Actions (윈도우 PC 불필요, 권장)
+
+1. GitHub 저장소 → `Actions` 탭 → 왼쪽에서 `Windows 빌드` 선택
+2. 오른쪽 `Run workflow` 버튼 클릭
+3. 5분쯤 뒤 완료되면 실행 기록을 열고 아래 `Artifacts`에서
+   `CSATPromptGenerator-windows` 를 내려받습니다
+4. 압축을 풀면 나오는 `CSATPromptGenerator` 폴더를 **통째로** USB에 담습니다
+
+`v1.0` 같은 태그를 밀어도 자동으로 빌드됩니다.
+
+```bash
+git tag v1.0 && git push origin v1.0
+```
+
+### 방법 2. 윈도우 PC에서 직접 빌드
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt pyinstaller
+pyinstaller --noconfirm CSATPromptGenerator.spec
+```
+
+`dist\CSATPromptGenerator\` 폴더가 배포본입니다.
+
+### USB로 전달할 때 알아 둘 것
+
+- **폴더를 통째로** 복사하세요. `CSATPromptGenerator.exe` 파일 하나만 빼내면
+  실행되지 않습니다. 옆의 `_internal` 폴더에 Qt와 템플릿이 들어 있습니다.
+- 파이썬을 설치할 필요가 없습니다. 받는 분은 `CSATPromptGenerator.exe`를
+  더블클릭하기만 하면 됩니다.
+- 처음 실행하면 **"Windows에서 PC를 보호했습니다"** 경고가 뜹니다. 서명되지 않은
+  프로그램이라 나오는 정상 동작입니다. `추가 정보` → `실행`을 누르면 됩니다.
+  이 안내를 함께 전달해 주세요.
+- USB에서 바로 실행하면 느립니다(200MB가 넘고 Qt를 읽어 들입니다).
+  **PC로 복사한 뒤 실행**하도록 안내하는 편이 좋습니다.
+- 사용자가 만든 프리셋과 설정은 USB가 아니라 그 PC의
+  `%APPDATA%\CSATPromptGenerator\` 에 저장됩니다. 다른 PC에서 실행하면
+  설정이 따라가지 않습니다.
+
 ## 빌드 결과
 
 - macOS one-folder: `dist/CSATPromptGenerator/` 와 `dist/CSATPromptGenerator.app`
