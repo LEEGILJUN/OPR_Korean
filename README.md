@@ -117,6 +117,7 @@ csat_prompt_generator/
 ├─ README.md
 ├─ CLAUDE.md
 ├─ CSATPromptGenerator.spec
+├─ run_windows.bat          # 윈도우에서 더블클릭하면 앱 실행 (소스 전달용)
 ├─ build_windows.bat        # 윈도우에서 더블클릭하면 배포본 생성
 ├─ config/
 │  ├─ presets.json
@@ -398,6 +399,30 @@ pyinstaller --noconfirm --windowed --name CSATPromptGenerator --add-data "templa
 ```
 
 단일 실행 파일로 만들려면 `--onefile`을 추가합니다.
+
+## 윈도우 사용자에게 전달하기
+
+두 가지 방법이 있습니다. 받는 분이 파이썬을 설치할 수 있는지로 갈립니다.
+
+### 방법 A. 소스를 그대로 복사해 전달 (간단, 333KB)
+
+`.venv`, `dist`, `build` 폴더를 뺀 나머지를 통째로 복사해 주면 됩니다.
+받는 분은 `run_windows.bat` 을 **더블클릭**하면 됩니다. 처음 한 번만 준비 과정을
+거치고(몇 분), 그 뒤로는 바로 실행됩니다.
+
+- 장점: 용량이 작고, 만드는 쪽에서 빌드할 필요가 없습니다.
+- 단점: 받는 PC에 파이썬이 설치되어 있어야 합니다.
+  (없으면 스크립트가 설치 방법을 안내하고 멈춥니다)
+
+### 방법 B. 실행 파일로 만들어 전달 (받는 쪽 설치 불필요, 200MB+)
+
+윈도우 PC에서 `build_windows.bat` 을 더블클릭하면 `dist\CSATPromptGenerator\`
+폴더가 만들어집니다. 이 폴더를 통째로 전달하면 받는 분은 파이썬 없이
+`CSATPromptGenerator.exe` 만 더블클릭하면 됩니다.
+
+**PyInstaller는 크로스 컴파일을 지원하지 않습니다.** macOS에서 만든 `dist/`는
+macOS 전용 바이너리이므로 윈도우에서 실행되지 않습니다. 윈도우용 실행 파일은
+반드시 윈도우에서 빌드해야 합니다.
 
 ## 윈도우 배포본 만들기 (USB 전달용)
 
