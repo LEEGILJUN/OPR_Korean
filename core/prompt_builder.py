@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+from .models import DifficultyProfile, PromptRequest
+from .template_loader import TemplateLoader
+
+
+class PromptBuilder:
+    """Build a final prompt by merging common, category, version, and module templates."""
+
+    def __init__(self, template_loader: TemplateLoader | None = None) -> None:
+        self.template_loader = template_loader or TemplateLoader()
+
+    def build(self, request: PromptRequest) -> str:
+        common_template = self.template_loader.load_common_template()
+        category_template = self.template_loader.load_category_template(request.category)
+        version_template = self._load_version_template(request.version)
+        module_templates = self._load_module_templates(request.selected_modules)
+        difficulty_profile = self.template_loader.load_difficulty_profile(request.difficulty)
+
+        sections = [
+            self._build_goal_section(request, difficulty_profile),
+            self._build_common_rules_section(common_template, version_template, difficulty_profile),
+            self._build_category_section(request.category, category_template),
+            self._build_modules_section(module_templates),
+            self._build_passage_section(request.passage),
+            self._build_example_section(request.example_text),
+            self._build_output_format_section(request, difficulty_profile),
+        ]
+
+        return self._join_sections(sections)
+
+    def _load_version_template(self, version_name: str) -> str:
+        if not version_name.strip():
+            return ""
+        return self.template_loader.load_version_template(version_name)
+
+    def _load_module_templates(self, module_names: list[str]) -> list[tuple[str, str]]:
+        return [
+            (module_name, self.template_loader.load_module_template(module_name))
+            for module_name in module_names
+        ]
+
+    def _build_goal_section(self, request: PromptRequest, difficulty_profile: DifficultyProfile) -> str:
+        return self._section(
+            "작업 목표",
+            [self._bullet_block(
+                "아래 지문을 바탕으로 한국 수능 국어형 문항 초안을 설계하라.",
+                f"영역: {request.category}",
+                f"프롬프트 버전: {request.version}",
+                f"문항 수: {request.question_count}개",
+                f"난이도: {request.difficulty}",
+                f"목표 수준: {difficulty_profile.target_band}",
+                f"문항 형식: {request.question_style}",
+                f"출제 묶음: {request.set_style}",
+                f"배점 구조: {request.scoring_scheme}",
+            )],
+        )
+
+    def _build_common_rules_section(
+        self,
+        common_template: str,
+        version_template: str,
+        difficulty_profile: DifficultyProfile,
+    ) -> str:
+        lines = [common_template]
+        if version_template:
+            lines.append(self._build_version_guidance_block(version_template))
+        lines.append(self._build_difficulty_guidance_block(difficulty_profile))
+        return self._section("공통 규칙", lines)
+
+    def _build_category_section(self, category_name: str, category_template: str) -> str:
+        return self._section(
+            "영역별 지시",
+            [f"[선택 영역] {category_name}", category_template],
+        )
+
+    def _build_modules_section(self, module_templates: list[tuple[str, str]]) -> str | None:
+        if not module_templates:
+            return None
+
+        blocks: list[str] = []
+        for module_name, module_text in module_templates:
+            blocks.append(f"[{module_name}]\n{module_text}")
+        return self._section("추가 모듈", blocks)
+
+    def _build_passage_section(self, passage: str) -> str:
+        return self._section("사용자 입력 지문", [passage.strip()])
+
+    def _build_example_section(self, example_text: str) -> str | None:
+        cleaned = example_text.strip()
+        if not cleaned:
+            return None
+        return self._section("사용자 입력 보기", [cleaned])
+
+    def _build_output_format_section(
+        self,
+        request: PromptRequest,
+        difficulty_profile: DifficultyProfile,
+    ) -> str:
+        lines = self._bullet_block(
+            f"총 {request.question_count}개의 문항을 작성하라.",
+            "각 문항은 번호를 붙여 구분하라.",
+            *self._question_style_guidance(request.question_style),
+            *self._set_style_guidance(request.set_style),
+            *self._scoring_scheme_guidance(request.scoring_scheme, request.question_count),
+            "각 문항마다 문제, 정답, 해설, 출제 의도를 포함하라.",
+            "오답 선지는 지문 근거를 바탕으로 설계하라.",
+            f"전체 결과는 '{request.difficulty}' 난이도 기준에 맞게 조정하라.",
+            f"'{request.difficulty}' 난이도는 {difficulty_profile.summary}",
+            "출력은 교사용 검토 문서처럼 읽기 쉽게 정리하라.",
+        )
+        return self._section("출력 형식", [lines])
+
+    def _build_version_guidance_block(self, version_template: str) -> str:
+        return "[버전 지침]\n" + version_template.strip()
+
+    def _build_difficulty_guidance_block(self, difficulty_profile: DifficultyProfile) -> str:
+        lines = [
+            f"[난이도 지침] {difficulty_profile.label}",
+            f"- 목표 수준: {difficulty_profile.target_band}",
+            f"- 요약: {difficulty_profile.summary}",
+            *[f"- {line}" for line in difficulty_profile.guidance],
+        ]
+        return "\n".join(lines)
+
+    def _question_style_guidance(self, question_style: str) -> list[str]:
+        mapping = {
+            "객관식 5지선다": [
+                "각 객관식 문항은 5개의 선택지를 제시하라.",
+                "선택지는 ①~⑤ 형식으로 제시하라.",
+            ],
+            "객관식 4지선다": [
+                "각 객관식 문항은 4개의 선택지를 제시하라.",
+                "선택지는 ①~④ 형식으로 제시하라.",
+            ],
+            "객관식 3지선다": [
+                "각 객관식 문항은 3개의 선택지를 제시하라.",
+                "선택지는 ①~③ 형식으로 제시하라.",
+            ],
+            "서술형": [
+                "모든 문항은 서술형으로 작성하라.",
+                "선택지는 제시하지 말고, 모범 답안 요소와 채점 포인트를 함께 제시하라.",
+            ],
+        }
+        return mapping.get(question_style, ["문항 형식은 선택 설정에 맞게 작성하라."])
+
+    def _set_style_guidance(self, set_style: str) -> list[str]:
+        mapping = {
+            "지문 세트형(수능형)": [
+                "가능하면 하나의 지문 또는 보기 묶음 아래에 여러 문항을 배치하는 수능형 세트 구성을 따르라."
+            ],
+            "독립 문항형": [
+                "각 문항은 서로 독립된 문항처럼 작성하라."
+            ],
+            "혼합형": [
+                "세트형 문항과 독립 문항을 혼합하되, 구성 의도를 명확히 드러내라."
+            ],
+        }
+        return mapping.get(set_style, [])
+
+    def _scoring_scheme_guidance(self, scoring_scheme: str, question_count: int) -> list[str]:
+        mapping = {
+            "수능형 2점·3점 혼합": [
+                "배점은 수능형처럼 2점과 3점을 혼합하라.",
+                "기본 이해 확인형은 2점, 변별 문항은 3점으로 배정하라.",
+            ],
+            "균등 배점": [
+                "모든 문항은 동일한 배점으로 설정하라."
+            ],
+            "고난도 3점 중심": [
+                "고난도 문항 중심으로 3점 배점을 우선 적용하라."
+            ],
+        }
+        return mapping.get(scoring_scheme, [])
+
+    def _section(self, title: str, blocks: list[str]) -> str:
+        cleaned_blocks = [block.strip() for block in blocks if block and block.strip()]
+        if not cleaned_blocks:
+            return ""
+        return f"@@TITLE:{title}\n" + "\n\n".join(cleaned_blocks)
+
+    def _bullet_block(self, *items: str) -> str:
+        cleaned_items = [item.strip() for item in items if item and item.strip()]
+        return "\n".join(f"- {item}" for item in cleaned_items)
+
+    def _join_sections(self, sections: list[str | None]) -> str:
+        rendered: list[str] = []
+        ordered_sections = [section.strip() for section in sections if section and section.strip()]
+        for index, section in enumerate(ordered_sections, start=1):
+            title_line, body = section.split("\n", 1)
+            clean_title = title_line.removeprefix("@@TITLE:")
+            rendered.append(f"## {index}) {clean_title}\n{body.strip()}")
+        return "\n\n".join(rendered).strip() + "\n"

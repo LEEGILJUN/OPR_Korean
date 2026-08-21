@@ -1,0 +1,112 @@
+{
+  "presets": [
+    {
+      "id": "reading_basic",
+      "label": "독서 기본형",
+      "description": "독서 지문의 핵심 정보와 논리 구조를 빠르게 점검하는 기본 구성입니다.",
+      "category": "독서",
+      "version": "기본형",
+      "difficulty": "5등급",
+      "question_count": 1,
+      "question_style": "객관식 5지선다",
+      "set_style": "지문 세트형(수능형)",
+      "scoring_scheme": "수능형 2점·3점 혼합",
+      "modules": []
+    },
+    {
+      "id": "reading_hard",
+      "label": "독서 고난도형",
+      "description": "독서 지문에서 변별력 있는 추론과 난이도 통제를 강조하는 구성입니다.",
+      "category": "독서",
+      "version": "Ultimate형",
+      "difficulty": "1등급",
+      "question_count": 2,
+      "question_style": "객관식 5지선다",
+      "set_style": "지문 세트형(수능형)",
+      "scoring_scheme": "수능형 2점·3점 혼합",
+      "modules": [
+        "Anchor Setting 포함",
+        "CoT 포함",
+        "Self-Correction 포함",
+        "난이도 미세조정 포함"
+      ]
+    },
+    {
+      "id": "modern_poetry_basic",
+      "label": "현대시 기본형",
+      "description": "현대시의 화자, 정서, 표현법을 중심으로 기본 문항을 만드는 구성입니다.",
+      "category": "현대시",
+      "version": "기본형",
+      "difficulty": "5등급",
+      "question_count": 1,
+      "question_style": "객관식 5지선다",
+      "set_style": "독립 문항형",
+      "scoring_scheme": "균등 배점",
+      "modules": []
+    },
+    {
+      "id": "modern_poetry_controlled",
+      "label": "현대시 해석통제형",
+      "description": "현대시 해석의 과잉을 줄이고 근거 중심 판단을 강화하는 구성입니다.",
+      "category": "현대시",
+      "version": "Ultimate형",
+      "difficulty": "2등급",
+      "question_count": 1,
+      "question_style": "객관식 5지선다",
+      "set_style": "독립 문항형",
+      "scoring_scheme": "고난도 3점 중심",
+      "modules": [
+        "CoT 포함",
+        "Self-Correction 포함"
+      ]
+    },
+    {
+      "id": "classical_poetry_example_focused",
+      "label": "고전시가 보기중심형",
+      "description": "보기 자료와 표현상 특징 비교를 중심으로 고전시가 문항을 설계하는 구성입니다.",
+      "category": "고전시가",
+      "version": "고급형",
+      "difficulty": "3등급",
+      "question_count": 2,
+      "question_style": "객관식 5지선다",
+      "set_style": "지문 세트형(수능형)",
+      "scoring_scheme": "수능형 2점·3점 혼합",
+      "modules": [
+        "Anchor Setting 포함",
+        "Self-Correction 포함"
+      ]
+    },
+    {
+      "id": "classical_novel_structure",
+      "label": "고전소설 구조분석형",
+      "description": "인물 관계와 사건 구조, 갈등 전개를 분석하는 고전소설 문항용 구성입니다.",
+      "category": "고전소설",
+      "version": "고급형",
+      "difficulty": "3등급",
+      "question_count": 2,
+      "question_style": "객관식 5지선다",
+      "set_style": "지문 세트형(수능형)",
+      "scoring_scheme": "수능형 2점·3점 혼합",
+      "modules": [
+        "Anchor Setting 포함",
+        "오답 유형 라벨링 포함"
+      ]
+    },
+    {
+      "id": "grammar_application",
+      "label": "문법 개념적용형",
+      "description": "문법 개념을 실제 문장과 선지에 적용하는 방식의 문항을 만드는 구성입니다.",
+      "category": "문법",
+      "version": "고급형",
+      "difficulty": "3등급",
+      "question_count": 2,
+      "question_style": "객관식 5지선다",
+      "set_style": "독립 문항형",
+      "scoring_scheme": "수능형 2점·3점 혼합",
+      "modules": [
+        "오답 유형 라벨링 포함",
+        "난이도 미세조정 포함"
+      ]
+    }
+  ]
+}

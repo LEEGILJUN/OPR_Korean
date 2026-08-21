@@ -1,1 +1,347 @@
-# OPR_Korean
+# 수능 국어 프롬프트 템플릿 생성기
+
+PySide6 기반의 로컬 데스크톱 앱입니다. macOS와 Windows에서 모두 실행됩니다.  
+지문과 보기, 카테고리, 프롬프트 버전, 보조 모듈, 난이도, 문항 수를 설정해 ChatGPT나 다른 LLM 웹 인터페이스에 바로 붙여 넣을 수 있는 수능 국어용 프롬프트를 생성합니다.
+
+이 프로젝트는 웹 앱이 아니며, 데이터베이스 없이 로컬 파일만 사용합니다.
+
+## 프로젝트 개요
+
+이 앱은 한국 수능 국어 문항 설계용 프롬프트를 빠르게 만들기 위한 도구입니다.
+
+- 지문 입력
+- 선택형 보기 입력
+- 카테고리 선택
+- 프롬프트 버전 선택
+- 보조 모듈 선택
+- 난이도 및 문항 수 설정
+- 프리셋 적용
+- 결과 미리보기
+- 클립보드 복사
+- `.txt` / `.md` 저장
+
+템플릿과 프리셋은 외부 파일로 분리되어 있어, 코드를 크게 수정하지 않고도 내용을 조정할 수 있습니다.
+
+## 주요 기능
+
+- 큰 지문 입력 영역과 결과 미리보기 영역
+- 다음 카테고리 지원
+  - 문학
+  - 현대시
+  - 현대소설
+  - 고전시가
+  - 고전소설
+  - 독서
+  - 문법
+  - 언어와 매체
+  - 화법과 작문
+- 프롬프트 버전 지원
+  - 기본형
+  - 고급형
+  - Ultimate형
+- 보조 모듈 지원
+  - Anchor Setting 포함
+  - CoT 포함
+  - Self-Correction 포함
+  - 오답 유형 라벨링 포함
+  - 난이도 미세조정 포함
+- 난이도는 수능 상대평가 등급 기준(1등급 ~ 9등급)
+  - 등급별 목표 수준과 지침은 `config/difficulty_profiles.json`에서 관리
+- 출제 옵션
+  - 문항 형식: 객관식 5지선다 / 4지선다 / 3지선다 / 서술형
+  - 출제 묶음: 지문 세트형(수능형) / 독립 문항형 / 혼합형
+  - 배점 구조: 수능형 2점·3점 혼합 / 균등 배점 / 고난도 3점 중심
+- 자주 쓰는 프리셋 지원
+  - 독서 기본형
+  - 독서 고난도형
+  - 현대시 기본형
+  - 현대시 해석통제형
+  - 고전시가 보기중심형
+  - 고전소설 구조분석형
+  - 문법 개념적용형
+- 사용자 정의 프리셋 저장 및 삭제
+- 사용자 정의 출제영역 추가 및 삭제
+  - 추가 시 `config/category_starter_templates.json`의 시작 템플릿을 예시로 제공
+- 단축키
+  - Ctrl+Enter: 생성
+  - Ctrl+Shift+C: 복사
+  - Ctrl+S: .txt 저장
+  - Ctrl+Shift+S: .md 저장
+  - Ctrl+R: 초기화
+- 입력 검증 및 한국어 오류 메시지
+- 저장 파일에 메타데이터 포함
+  - 제목
+  - 생성 시각
+  - 카테고리
+  - 버전
+  - 선택 옵션
+  - 지문
+  - 보기
+  - 최종 생성 프롬프트
+
+## 폴더 구조
+
+```text
+csat_prompt_generator/
+├─ main.py
+├─ app.py
+├─ requirements.txt
+├─ README.md
+├─ CLAUDE.md
+├─ CSATPromptGenerator.spec
+├─ config/
+│  ├─ presets.json
+│  ├─ difficulty_profiles.json
+│  └─ category_starter_templates.json
+├─ core/
+│  ├─ __init__.py
+│  ├─ file_utils.py
+│  ├─ models.py
+│  ├─ preset_loader.py
+│  ├─ prompt_builder.py
+│  └─ template_loader.py
+├─ gui/
+│  ├─ __init__.py
+│  ├─ main_window.py
+│  ├─ styles.py
+│  └─ widgets.py
+├─ tools/
+│  └─ smoke_test.py
+└─ templates/
+   ├─ common.txt
+   ├─ literature.txt
+   ├─ modern_poetry.txt
+   ├─ modern_novel.txt
+   ├─ classical_poetry.txt
+   ├─ classical_novel.txt
+   ├─ reading.txt
+   ├─ grammar.txt
+   ├─ language_media.txt
+   ├─ speech_writing.txt
+   ├─ versions/
+   │  ├─ basic.txt
+   │  ├─ advanced.txt
+   │  └─ ultimate.txt
+   └─ modules/
+      ├─ anchor.txt
+      ├─ cot.txt
+      ├─ self_correction.txt
+      ├─ distractor_labeling.txt
+      └─ difficulty_control.txt
+```
+
+## 설치 방법
+
+Python 3.10 이상이 필요합니다. (개발·검증 환경은 Python 3.12)
+
+### macOS / Linux
+
+```bash
+cd 경로/csat_prompt_generator
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Windows
+
+PowerShell 기준입니다.
+
+```powershell
+cd 경로\csat_prompt_generator
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+## 실행 방법
+
+가상환경을 활성화한 뒤 다음 둘 중 하나로 실행합니다.
+
+```bash
+python main.py
+```
+
+또는
+
+```bash
+python app.py
+```
+
+실제 진입점은 `main.py`이며, `app.py`는 같은 앱을 실행하는 간단한 대체 진입점입니다.
+
+가상환경을 활성화하지 않고 바로 실행할 수도 있습니다.
+
+```bash
+.venv/bin/python main.py          # macOS / Linux
+.venv\Scripts\python.exe main.py  # Windows
+```
+
+## 동작 확인
+
+GUI를 띄우지 않고 템플릿 로딩, 프리셋 로딩, 프롬프트 조립, 윈도우 생성까지 한 번에 점검합니다.
+
+```bash
+.venv/bin/python tools/smoke_test.py
+```
+
+템플릿이나 설정 JSON을 수정한 뒤에는 이 스크립트를 먼저 돌려 보는 것을 권장합니다.
+
+## 템플릿 커스터마이징 가이드
+
+프롬프트 내용은 모두 외부 텍스트 파일로 분리되어 있습니다.
+
+### 공통 규칙
+
+- `templates/common.txt`
+
+### 카테고리별 지시
+
+- `templates/reading.txt`
+- `templates/modern_poetry.txt`
+- `templates/classical_poetry.txt`
+- `templates/classical_novel.txt`
+- `templates/grammar.txt`
+- 그 외 나머지 카테고리 템플릿
+
+### 버전별 지시
+
+- `templates/versions/basic.txt`
+- `templates/versions/advanced.txt`
+- `templates/versions/ultimate.txt`
+
+### 모듈별 지시
+
+- `templates/modules/anchor.txt`
+- `templates/modules/cot.txt`
+- `templates/modules/self_correction.txt`
+- `templates/modules/distractor_labeling.txt`
+- `templates/modules/difficulty_control.txt`
+
+### 프리셋 수정
+
+자주 쓰는 설정 조합은 아래 파일에서 관리합니다.
+
+- `config/presets.json`
+
+프리셋은 다음 항목을 자동으로 채웁니다.
+
+- 카테고리
+- 버전
+- 난이도
+- 문항 수
+- 선택 모듈
+- 문항 형식, 출제 묶음, 배점 구조
+
+프리셋 적용 후에도 사용자가 화면에서 자유롭게 다시 수정할 수 있습니다.
+
+### 난이도 수정
+
+등급별 목표 수준과 지침은 아래 파일에서 관리합니다.
+
+- `config/difficulty_profiles.json`
+
+### 출제영역 시작 템플릿 수정
+
+사용자 정의 출제영역을 추가할 때 예시로 제시되는 문구는 아래 파일에서 관리합니다.
+
+- `config/category_starter_templates.json`
+
+항목 이름은 `"<기본영역>-<세부유형>"` 형식이어야 하며, 앱은 선택한 기본영역 접두사로 후보를 걸러 보여 줍니다.
+
+## 저장 파일 형식
+
+앱에서 `.txt` 또는 `.md`로 저장하면 메타데이터와 최종 프롬프트가 함께 저장됩니다.
+
+예시:
+
+```text
+제목: 수능 국어 프롬프트 아카이브 - 독서 / 고급형
+생성 시각: 2026-03-23 14:30:00
+카테고리: 독서
+프롬프트 버전: 고급형
+난이도: 2등급
+문항 수: 2
+선택 옵션: 난이도: 2등급, 문항 수: 2, Anchor Setting 포함
+
+[지문]
+...
+
+[보기]
+...
+
+[최종 생성 프롬프트]
+...
+```
+
+## PyInstaller 빌드 방법
+
+PyInstaller는 런타임 필수 패키지가 아니므로, 필요할 때만 별도로 설치합니다.
+
+이 프로젝트는 템플릿과 프리셋을 외부 리소스로 읽기 때문에, 빌드할 때 `templates`와 `config` 폴더를 함께 포함해야 합니다.
+코드에서는 `core/file_utils.py`의 `resource_root()`를 사용해 일반 실행과 PyInstaller 번들 실행(`sys._MEIPASS`)을 모두 처리합니다.
+
+### 1. PyInstaller 설치
+
+```bash
+pip install pyinstaller
+```
+
+### 2. spec 파일로 빌드 (권장)
+
+`CSATPromptGenerator.spec`에 `templates`와 `config` 포함 설정이 이미 들어 있습니다.
+
+```bash
+pyinstaller --noconfirm CSATPromptGenerator.spec
+```
+
+### 3. spec 없이 직접 빌드
+
+macOS / Linux는 `--add-data` 구분자로 `:`를 사용합니다.
+
+```bash
+pyinstaller --noconfirm --windowed --name CSATPromptGenerator \
+  --add-data "templates:templates" --add-data "config:config" main.py
+```
+
+Windows는 구분자로 `;`를 사용합니다.
+
+```powershell
+pyinstaller --noconfirm --windowed --name CSATPromptGenerator --add-data "templates;templates" --add-data "config;config" main.py
+```
+
+단일 실행 파일로 만들려면 `--onefile`을 추가합니다.
+
+## 빌드 결과
+
+- macOS one-folder: `dist/CSATPromptGenerator/` 와 `dist/CSATPromptGenerator.app`
+- Windows one-folder: `dist/CSATPromptGenerator/`
+- Windows single exe: `dist/CSATPromptGenerator.exe`
+
+## 사용자 데이터 저장 위치
+
+사용자가 앱에서 만든 프리셋과 출제영역은 번들 폴더가 아니라 아래 위치에 저장됩니다.
+
+- macOS: `~/Library/Application Support/CSATPromptGenerator/`
+- Windows: `%APPDATA%\CSATPromptGenerator\`
+- Linux: `~/.local/share/CSATPromptGenerator/`
+
+저장되는 파일은 `user_presets.json`, `hidden_presets.json`, `user_categories.json` 입니다.
+
+## 현재 requirements.txt
+
+현재 실제 런타임 의존성은 아래 한 가지입니다.
+
+```text
+PySide6>=6.6,<7
+```
+
+즉, `requirements.txt`는 현재 코드베이스 기준으로 최소 의존성만 포함합니다.
+
+## 참고
+
+- Python 3.10 이상 권장
+- UTF-8 한국어 텍스트 기준
+- 인터넷 연결 없이 로컬 실행 가능
+- 데이터베이스 사용 없음
+- GUI, 비즈니스 로직, 템플릿 로딩, 프리셋 로딩이 분리되어 있음
