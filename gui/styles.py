@@ -138,7 +138,10 @@ def build_stylesheet(font_scale: int = 100) -> str:
         background: {c["bg_app"]};
     }}
     * {{
-        font-family: -apple-system, "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo",
+        /* Korean face first per platform: macOS, then Windows, then Linux.
+           "-apple-system" is a CSS keyword Qt cannot resolve — it only costs a
+           font-alias scan at startup. */
+        font-family: "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕",
                      "Segoe UI", "Noto Sans KR", sans-serif;
     }}
 
@@ -323,7 +326,9 @@ def build_stylesheet(font_scale: int = 100) -> str:
         color: {c["text_primary"]};
         font-size: 13px;
         spacing: 8px;
-        padding: 4px 0;
+        /* Right padding keeps the last Hangul glyph from being clipped —
+           the styled sizeHint underestimates Korean label width. */
+        padding: 4px 8px 4px 0;
     }}
     QCheckBox::indicator {{
         width: 18px;
