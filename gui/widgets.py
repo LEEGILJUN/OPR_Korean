@@ -171,6 +171,7 @@ class CollapsibleSection(QWidget):
 
         self._header.mousePressEvent = lambda e: self.toggle()
         main_layout.addWidget(self._header)
+        self._title_label = title_label
 
         # Content container
         self._content = QWidget()
@@ -183,6 +184,17 @@ class CollapsibleSection(QWidget):
     def content_layout(self) -> QVBoxLayout:
         """Return the layout to add child widgets into."""
         return self._content_layout
+
+    def refresh_theme(self) -> None:
+        """Re-apply inline colors after the palette changed."""
+        self._header.setStyleSheet(
+            "QFrame { background: transparent; border: none; padding: 6px 0; }"
+        )
+        self._arrow.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10px;"
+            f" background: transparent; border: none;"
+        )
+        self._title_label.setStyleSheet("background: transparent; border: none;")
 
     def toggle(self) -> None:
         self._expanded = not self._expanded
@@ -302,6 +314,10 @@ class StepIndicator(QWidget):
 
     def current(self) -> int:
         return self._current
+
+    def refresh_theme(self) -> None:
+        """Re-apply inline colors after the palette changed."""
+        self.set_current(self._current)
 
 
 # ---------------------------------------------------------------------------

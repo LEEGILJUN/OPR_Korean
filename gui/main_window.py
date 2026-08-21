@@ -35,6 +35,7 @@ from core.file_utils import (
     build_export_content,
     current_timestamp,
     ensure_file_extension,
+    parse_export_content,
     save_text_file,
 )
 from core.app_settings import AppSettings
@@ -52,7 +53,7 @@ from core.prompt_builder import PromptBuilder
 from core.template_loader import CategorySaveError, TemplateLoadError, TemplateLoader
 
 from .guide_dialog import GuideDialog
-from .styles import build_stylesheet
+from .styles import apply_theme, build_stylesheet
 from .widgets import (
     CollapsibleSection,
     ModuleCheckboxGroup,
@@ -99,6 +100,9 @@ class MainWindow(QMainWindow):
         "round": "같은 지문으로 몇 번째 생성인지 보여 줍니다. 회차가 올라가면 이전 회차에서 쓰지 않은 문항 유형과 다른 지문 지점을 우선 겨냥하도록 프롬프트가 바뀝니다.",
         "reset_history": "이 지문의 생성 이력을 지웁니다. 지우면 다음 생성이 다시 1회차로 시작합니다.",
         "evaluation": "LLM이 만들어 준 문항을 여기에 그대로 붙여 넣으면, 그 문항이 잘 만들어졌는지 점검하는 '검증 프롬프트'를 만들어 줍니다. 그 프롬프트를 새 대화창에 붙여 넣어 실행하세요.",
+        "load": "이전에 저장한 .txt 또는 .md 아카이브에서 지문과 보기를 다시 불러옵니다. 설정은 파일에 기록된 값으로 맞춥니다.",
+        "theme": "밝은 화면과 어두운 화면을 전환합니다. 선택은 저장되어 다음 실행에도 유지됩니다.",
+        "font_size": "글자 크기를 조절합니다. 80%에서 150%까지 바꿀 수 있습니다.",
         "question_types": "문항마다 어떤 유형을 낼지 정합니다. 자동이면 앱이 서로 다른 유형을 배분하고, 같은 지문을 다시 쓸 때 지난 회차에 쓴 유형을 피합니다. 직접 고르면 선택한 유형만 사용합니다.",
         "evaluation_mode": "무엇을 점검할지 고릅니다. 블라인드 풀이는 정답을 지우고 직접 풀게 해 복수 정답을 잡아내고, 정밀 검토는 근거와 선지 설계를 진단하며, 난이도 점검은 목표 등급에 실제로 맞는지 봅니다.",
     }
@@ -146,7 +150,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("수능 국어 프롬프트 생성기")
         self.resize(1400, 900)
         self.setMinimumSize(1100, 720)
-        self.setStyleSheet(build_stylesheet())
+        apply_theme(str(self.app_settings.get("theme")))
 
         root = QWidget()
         root.setObjectName("rootWidget")
@@ -178,6 +182,8 @@ class MainWindow(QMainWindow):
         status_bar = QStatusBar()
         status_bar.showMessage("지문을 입력한 뒤 프롬프트 생성 버튼을 누르세요.  |  Ctrl+Enter: 생성  |  Ctrl+Shift+C: 복사")
         self.setStatusBar(status_bar)
+
+        self._apply_appearance()
 
     # -------------------------------------------------------------------
     # Toolbar (preset bar at top)
@@ -236,6 +242,26 @@ class MainWindow(QMainWindow):
         self.preset_description_label.setMaximumWidth(400)
         self.preset_description_label.setWordWrap(True)
         layout.addWidget(self.preset_description_label)
+
+        layout.addSpacing(16)
+
+        self.theme_button = QPushButton("")
+        self.theme_button.setObjectName("iconButton")
+        self.theme_button.setToolTip(self.FIELD_HELP_TEXTS["theme"])
+        self.theme_button.clicked.connect(self.toggle_theme)
+        layout.addWidget(self.theme_button)
+
+        self.font_smaller_button = QPushButton("A-")
+        self.font_smaller_button.setObjectName("iconButton")
+        self.font_smaller_button.setToolTip(self.FIELD_HELP_TEXTS["font_size"])
+        self.font_smaller_button.clicked.connect(lambda: self.adjust_font_scale(-10))
+        layout.addWidget(self.font_smaller_button)
+
+        self.font_larger_button = QPushButton("A+")
+        self.font_larger_button.setObjectName("iconButton")
+        self.font_larger_button.setToolTip(self.FIELD_HELP_TEXTS["font_size"])
+        self.font_larger_button.clicked.connect(lambda: self.adjust_font_scale(10))
+        layout.addWidget(self.font_larger_button)
 
         self.guide_button = QPushButton("사용 방법")
         self.guide_button.setObjectName("secondaryButton")
@@ -339,6 +365,7 @@ class MainWindow(QMainWindow):
         self.question_count_spin.setValue(1)
         self.question_count_spin.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.question_count_spin.setToolTip(self.FIELD_HELP_TEXTS["question_count"])
+        self.question_count_spin.valueChanged.connect(lambda _: self._update_passage_count())
         grid.addWidget(self.question_count_spin, 0, 1)
 
         grid.addWidget(self._make_field_label("문항 형식", self.FIELD_HELP_TEXTS["question_style"]), 1, 0)
@@ -432,7 +459,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 5)
         splitter.setStretchFactor(2, 0)
-        splitter.setSizes([380, 400, 90])
+        splitter.setSizes([330, 470, 70])
 
         layout.addWidget(splitter, 1)
         return panel
@@ -460,9 +487,13 @@ class MainWindow(QMainWindow):
         header.addWidget(self._make_section_title_with_help("지문 입력", self.FIELD_HELP_TEXTS["passage"]))
         header.addStretch(1)
 
-        hint = QLabel("문항의 기준이 되는 지문을 입력하세요. 가장 중요한 입력입니다.")
-        hint.setObjectName("sectionHint")
-        header.addWidget(hint)
+        self.passage_hint_label = QLabel("문항의 기준이 되는 지문을 입력하세요. 가장 중요한 입력입니다.")
+        self.passage_hint_label.setObjectName("sectionHint")
+        header.addWidget(self.passage_hint_label)
+
+        self.passage_count_label = QLabel("")
+        self.passage_count_label.setObjectName("tokenCounter")
+        header.addWidget(self.passage_count_label)
 
         self.round_label = QLabel("")
         self.round_label.setObjectName("sectionHint")
@@ -585,6 +616,10 @@ class MainWindow(QMainWindow):
         self.output_title_label = QLabel("생성 결과")
         self.output_title_label.setObjectName("sectionTitle")
         header.addWidget(self.output_title_label)
+
+        self.output_summary_label = QLabel("")
+        self.output_summary_label.setObjectName("sectionHint")
+        header.addWidget(self.output_summary_label)
         header.addStretch(1)
 
         self.token_label = QLabel("")
@@ -629,6 +664,13 @@ class MainWindow(QMainWindow):
         action_row.addWidget(self.save_md_button)
 
         action_row.addStretch(1)
+
+        self.load_button = QPushButton("불러오기")
+        self.load_button.setObjectName("iconButton")
+        self.load_button.setToolTip(self.FIELD_HELP_TEXTS["load"])
+        self.load_button.clicked.connect(self.load_saved_archive)
+        action_row.addWidget(self.load_button)
+
         layout.addLayout(action_row)
 
         self._set_output_buttons_enabled(False)
@@ -714,6 +756,7 @@ class MainWindow(QMainWindow):
         self.last_variation_plan = variation
         self._set_output_buttons_enabled(True)
         self._update_token_count(final_prompt)
+        self._update_output_summary(variation)
         self._toast(self._variation_toast_message(variation), "success")
         self.statusBar().showMessage(self._variation_status_message(variation))
         self._refresh_round_indicator()
@@ -748,6 +791,92 @@ class MainWindow(QMainWindow):
         if self.app_settings.get("guide_seen"):
             return
         self.show_user_guide(first_run=True)
+
+    def load_saved_archive(self) -> None:
+        """Restore passage, example, and settings from a saved .txt/.md archive."""
+        selected_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "저장한 프롬프트 불러오기",
+            str(Path.home()),
+            "프롬프트 파일 (*.txt *.md);;모든 파일 (*.*)",
+        )
+        if not selected_path:
+            return
+
+        try:
+            content = Path(selected_path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            QMessageBox.warning(
+                self,
+                "불러오기 실패",
+                f"파일을 읽지 못했습니다.\n\n{exc}\n\nUTF-8로 저장된 파일인지 확인해 주세요.",
+            )
+            return
+
+        parsed = parse_export_content(content)
+        passage = parsed.get("passage", "").strip()
+        if not passage:
+            QMessageBox.warning(
+                self,
+                "지문을 찾지 못했습니다",
+                "이 파일에서 지문을 찾지 못했습니다.\n"
+                "이 앱에서 저장한 .txt 또는 .md 파일인지 확인해 주세요.",
+            )
+            return
+
+        self.passage_edit.setPlainText(passage)
+        self.example_edit.setPlainText(parsed.get("example_text", ""))
+        self._set_combo_text(self.category_combo, parsed.get("category", ""))
+        self._set_combo_text(self.version_combo, parsed.get("version", ""))
+        self._set_combo_text(self.difficulty_combo, parsed.get("difficulty", ""))
+
+        raw_count = parsed.get("question_count", "")
+        if raw_count.isdigit():
+            count = int(raw_count)
+            spin = self.question_count_spin
+            if spin.minimum() <= count <= spin.maximum():
+                spin.setValue(count)
+
+        self._clear_generated_output()
+        self._refresh_round_indicator()
+        self._update_passage_count()
+        self._toast(f"불러왔습니다: {Path(selected_path).name}", "success")
+
+    # -------------------------------------------------------------------
+    # Appearance
+    # -------------------------------------------------------------------
+
+    def _apply_appearance(self) -> None:
+        """Re-apply theme and font scale across the window."""
+        theme = str(self.app_settings.get("theme"))
+        scale = int(self.app_settings.get("font_scale") or 100)
+        apply_theme(theme)
+        self.setStyleSheet(build_stylesheet(scale))
+
+        # Widgets that set colors inline cannot be reached by the stylesheet.
+        for section in self.findChildren(CollapsibleSection):
+            section.refresh_theme()
+        if hasattr(self, "step_indicator"):
+            self.step_indicator.refresh_theme()
+
+        self.theme_button.setText("라이트" if theme == "dark" else "다크")
+        self.font_smaller_button.setEnabled(scale > 80)
+        self.font_larger_button.setEnabled(scale < 150)
+
+    def toggle_theme(self) -> None:
+        theme = "light" if str(self.app_settings.get("theme")) == "dark" else "dark"
+        self.app_settings.set("theme", theme)
+        self._apply_appearance()
+        self._toast("어두운 화면으로 바꿨습니다." if theme == "dark" else "밝은 화면으로 바꿨습니다.", "info")
+
+    def adjust_font_scale(self, delta: int) -> None:
+        scale = int(self.app_settings.get("font_scale") or 100)
+        new_scale = max(80, min(150, scale + delta))
+        if new_scale == scale:
+            return
+        self.app_settings.set("font_scale", new_scale)
+        self._apply_appearance()
+        self._toast(f"글자 크기 {new_scale}%", "info")
 
     # -------------------------------------------------------------------
     # Session restore
@@ -870,6 +999,7 @@ class MainWindow(QMainWindow):
 
         self.output_edit.setPlainText(evaluation_prompt)
         self.output_title_label.setText("검증 프롬프트")
+        self.output_summary_label.setText(mode.label)
         self._set_workflow_step(2)
         self.last_generated_prompt = evaluation_prompt
         self.output_kind = "evaluation"
@@ -1261,6 +1391,7 @@ class MainWindow(QMainWindow):
             self._preview_timer.setInterval(400)
             self._preview_timer.timeout.connect(self._refresh_round_indicator)
         self._preview_timer.start()
+        self._update_passage_count()
 
     def _refresh_round_indicator(self) -> None:
         """Show how many times this passage has already been generated."""
@@ -1280,6 +1411,47 @@ class MainWindow(QMainWindow):
 
         self.round_label.setText(f"이 지문 {round_number - 1}회 생성됨 — 다음은 {round_number}회차")
         self.reset_history_button.setVisible(True)
+
+    def _update_passage_count(self) -> None:
+        """Show passage length and warn when it is too thin for the question count."""
+        if not hasattr(self, "passage_count_label"):
+            return
+        passage = self.passage_edit.toPlainText().strip()
+        self.passage_hint_label.setVisible(not passage)
+        if not passage:
+            self.passage_count_label.setText("")
+            self.passage_count_label.setToolTip("")
+            return
+
+        char_count = len(passage)
+        question_count = self.question_count_spin.value()
+        # Roughly one question needs 250 characters of passage to have distinct ground.
+        thin = char_count < question_count * 250
+
+        text = f"{char_count:,}자"
+        if thin:
+            text += "  ⚠ 지문이 짧습니다"
+            self.passage_count_label.setToolTip(
+                f"지문 {char_count:,}자로 {question_count}문항을 만들면 문항끼리 근거가 겹치기 쉽습니다.\n"
+                "지문을 늘리거나 문항 수를 줄이는 편이 좋습니다."
+            )
+        else:
+            self.passage_count_label.setToolTip("")
+        self.passage_count_label.setText(text)
+
+    def _update_output_summary(self, variation: VariationPlan | None) -> None:
+        """Summarise what went into the prompt, next to the output title."""
+        if not hasattr(self, "output_summary_label"):
+            return
+        parts = [self.category_combo.currentText(), self.version_combo.currentText()]
+        if variation is not None:
+            parts.append(f"{variation.round_number}회차")
+            parts.append(f"유형 {len(set(qt.name for qt in variation.assigned_types))}종")
+            parts.append(variation.anchor.label)
+        modules = self.module_group.selected_names()
+        if modules:
+            parts.append(f"모듈 {len(modules)}개")
+        self.output_summary_label.setText("  ·  ".join(part for part in parts if part))
 
     def _update_token_count(self, text: str) -> None:
         char_count = len(text)
@@ -1455,6 +1627,7 @@ class MainWindow(QMainWindow):
         self.last_variation_plan = None
         self.output_kind = "prompt"
         self.output_title_label.setText("생성 결과")
+        self.output_summary_label.setText("")
         self._set_workflow_step(0)
         self.token_label.setText("")
         self._set_output_buttons_enabled(False)

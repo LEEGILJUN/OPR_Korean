@@ -78,6 +78,66 @@ def current_timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def parse_export_content(content: str) -> dict[str, str]:
+    """Read back a saved .txt/.md archive into its labelled parts.
+
+    Only fields that are actually present are returned, so a hand-edited file or
+    an archive written by an older version still restores what it can.
+    """
+    result: dict[str, str] = {}
+
+    # Metadata lines: "카테고리: 독서" (txt) or "- 카테고리: 독서" (md).
+    meta_keys = {
+        "카테고리": "category",
+        "프롬프트 버전": "version",
+        "난이도": "difficulty",
+        "문항 수": "question_count",
+    }
+    for line in content.splitlines():
+        stripped = line.lstrip("-# ").strip()
+        for label, key in meta_keys.items():
+            prefix = f"{label}:"
+            if stripped.startswith(prefix) and key not in result:
+                result[key] = stripped[len(prefix):].strip()
+
+    # Body blocks: "[지문]" (txt) or "## 지문" (md).
+    body_labels = {"지문": "passage", "보기": "example_text"}
+    lines = content.splitlines()
+    current_key: str | None = None
+    buffer: list[str] = []
+
+    def flush() -> None:
+        if current_key and current_key not in result:
+            text = "\n".join(buffer).strip()
+            if text and text != "없음":
+                result[current_key] = text
+
+    for line in lines:
+        heading = _match_export_heading(line)
+        if heading is not None:
+            flush()
+            buffer = []
+            current_key = body_labels.get(heading)
+            continue
+        if current_key:
+            buffer.append(line)
+    flush()
+
+    return result
+
+
+def _match_export_heading(line: str) -> str | None:
+    """Return the heading name for an archive section line, else None."""
+    stripped = line.strip()
+    match = re.match(r"^\[(.+)\]$", stripped)
+    if match:
+        return match.group(1).strip()
+    match = re.match(r"^#{1,6}\s+(.+)$", stripped)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
 def _build_text_export(data: PromptExportData) -> str:
     selected_options = ", ".join(data.selected_options) if data.selected_options else "없음"
     example_text = data.example_text.strip() if data.example_text.strip() else "없음"

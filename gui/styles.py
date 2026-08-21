@@ -1,11 +1,18 @@
-"""Centralized stylesheet and color tokens for the CSAT Prompt Generator UI."""
+"""Centralized stylesheet and color tokens for the CSAT Prompt Generator UI.
+
+`COLORS` is the live palette every widget reads. `apply_theme()` swaps its
+contents in place so modules that did `from .styles import COLORS` keep seeing
+the current theme without re-importing.
+"""
 
 from __future__ import annotations
+
+import re
 
 # ---------------------------------------------------------------------------
 # Color tokens
 # ---------------------------------------------------------------------------
-COLORS = {
+LIGHT_COLORS = {
     # Backgrounds
     "bg_app": "#f0f2f5",
     "bg_card": "#ffffff",
@@ -51,11 +58,78 @@ COLORS = {
     "toast_text": "#f8fafc",
 }
 
+DARK_COLORS = {
+    # Backgrounds
+    "bg_app": "#12151c",
+    "bg_card": "#1a1f29",
+    "bg_card_primary": "#1c2331",
+    "bg_input": "#161b24",
+    "bg_sidebar": "#161a22",
+    "bg_toolbar": "#1a1f29",
+    "bg_hover": "#242b38",
 
-def build_stylesheet() -> str:
-    """Return the full application QSS stylesheet."""
+    # Borders
+    "border_default": "#333c4b",
+    "border_focus": "#5b8cff",
+    "border_primary_card": "#3a4d78",
+    "border_section": "#2a323f",
+    "border_sidebar": "#252c38",
+
+    # Text
+    "text_primary": "#e8ecf3",
+    "text_secondary": "#aab4c4",
+    "text_muted": "#8792a3",
+    "text_hint": "#6b7688",
+    "text_on_accent": "#ffffff",
+
+    # Accent
+    "accent": "#5b8cff",
+    "accent_hover": "#7aa2ff",
+    "accent_light": "#1e2942",
+
+    # Status
+    "success": "#34d399",
+    "success_bg": "#10291f",
+    "success_border": "#1f6b4d",
+    "warning": "#fbbf24",
+    "warning_bg": "#2b2210",
+    "warning_border": "#6d5216",
+    "danger": "#f87171",
+    "danger_bg": "#2c1517",
+    "danger_border": "#7a2c2f",
+    "danger_text": "#fca5a5",
+
+    # Toast
+    "toast_bg": "#e8ecf3",
+    "toast_text": "#12151c",
+}
+
+THEMES = {"light": LIGHT_COLORS, "dark": DARK_COLORS}
+
+# The live palette. Mutated in place by apply_theme() so that modules holding a
+# reference to COLORS always read the active theme.
+COLORS = dict(LIGHT_COLORS)
+
+
+def apply_theme(theme: str) -> None:
+    """Swap the live palette to the named theme, falling back to light."""
+    COLORS.clear()
+    COLORS.update(THEMES.get(theme, LIGHT_COLORS))
+
+
+def current_theme() -> str:
+    return "dark" if COLORS["bg_app"] == DARK_COLORS["bg_app"] else "light"
+
+
+def build_stylesheet(font_scale: int = 100) -> str:
+    """Return the full application QSS stylesheet for the active palette.
+
+    `font_scale` is a percentage applied to the base font size so the app stays
+    readable for users who work in it for long stretches.
+    """
     c = COLORS
-    return f"""
+    return _scale_fonts(
+        f"""
     /* ============ Global ============ */
     QMainWindow {{
         background: {c["bg_app"]};
@@ -326,4 +400,23 @@ def build_stylesheet() -> str:
     QScrollBar:horizontal {{
         height: 0;
     }}
+    """,
+        font_scale,
+    )
+
+
+def _scale_fonts(qss: str, font_scale: int) -> str:
+    """Scale every explicit px font size in the stylesheet by a percentage.
+
+    Rules carry hardcoded sizes, so an application-level font would be overridden.
+    Rewriting them at build time keeps a single source of truth in the QSS above.
     """
+    if font_scale == 100:
+        return qss
+
+    def resize(match: re.Match[str]) -> str:
+        scaled = max(9, round(int(match.group(1)) * font_scale / 100))
+        return f"font-size: {scaled}px"
+
+    return re.sub(r"font-size:\s*(\d+)px", resize, qss)
+
