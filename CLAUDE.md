@@ -81,6 +81,7 @@ gui/
 - 산출물 유형(문항 세트·학습지·해제·문법표·모의고사): `config/output_types.json`
 - 난이도: `config/difficulty_profiles.json` — 각 프로파일의 `mode`가 `csat`/`school`을 가른다
 - 영역별 문항 유형: `config/question_types.json` — 없는 영역은 `default` 목록으로 대체
+- 혼합 문항 형식의 형식별 개수: `config/question_styles.json`
 - 회차별 초점 앵커: `config/rotation_anchors.json` — 회차 % 개수로 순환
 - 기본 프리셋: `config/presets.json`
 - 검증 모드와 점검 항목: `config/evaluation_criteria.json`
@@ -149,7 +150,12 @@ GUI는 선택된 영역에 맞는 유형만 보여 준다(`output_type_labels(ca
 70문항과 정면으로 부딪히고, 하필 프롬프트의 **마지막 문장**이라 모델이 그쪽을 따른다.
 결과는 15문항짜리 학습지다. 잘린 것처럼 보이지만 실제로는 지시대로 만들고 정상 종료한 것이다.
 
-형식별 개수를 `output_types.json`의 지시문에 숫자로 박지 마라. 사용자가 못 바꾸게 되고,
+형식별 개수가 붙는 자리는 두 곳이다. 산출물 유형(`output_types.json`의 `question_sections`)과
+문항 형식(`question_styles.json`, 예: 객관식·단답형·서술형 혼합). **유형이 우선**한다 —
+독서 학습지는 이미 자기 형식을 정해 두었으므로, 혼합 형식이 두 번째 분해를 덧붙이면 안 된다.
+`PromptBuilder._active_sections()`와 `MainWindow._active_sections()`가 이 우선순위를 한 곳에서 정한다.
+
+형식별 개수를 지시문에 숫자나 비율로 박지 마라. 사용자가 못 바꾸게 되고,
 `question_sections`가 내보내는 개수와 두 벌이 되어 서로 어긋난다. 개수는 설정이,
 작성 규칙(표기 형식·문체)은 지시문이 맡는다.
 

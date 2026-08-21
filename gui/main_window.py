@@ -434,6 +434,9 @@ class MainWindow(QMainWindow):
             "빈칸 채우기", "OX 진위 판단",
         ])
         self.question_style_combo.setToolTip(self.FIELD_HELP_TEXTS["question_style"])
+        self.question_style_combo.currentTextChanged.connect(
+            lambda _: self._on_output_type_changed(self.output_type_combo.currentText())
+        )
         grid.addWidget(self.question_style_combo, 1, 1)
 
         grid.addWidget(self._make_field_label("출제 묶음", self.FIELD_HELP_TEXTS["set_style"]), 2, 0)
@@ -1194,11 +1197,22 @@ class MainWindow(QMainWindow):
 
         # The global count is meaningless once each format carries its own,
         # so it stays disabled even when the type does have questions.
-        uses_global_count = wants_questions and not output_type.question_sections
+        uses_global_count = wants_questions and not self._active_sections(output_type)
         self.question_count_spin.setEnabled(uses_global_count)
         self.question_count_label_widget.setEnabled(uses_global_count)
         if not wants_questions:
             self.question_type_picker.setVisible(False)
+
+    def _active_sections(self, output_type):
+        """Per-format counts to show: the output type wins over the question style."""
+        if output_type is not None and output_type.question_sections:
+            return output_type.question_sections
+        try:
+            return self.template_loader.load_style_sections(
+                self.question_style_combo.currentText()
+            )
+        except TemplateLoadError:
+            return []
 
     def _rebuild_section_counts(self, output_type) -> None:
         """Show one spin box per question format the output type declares.
@@ -1214,7 +1228,7 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
         self.section_count_spins.clear()
 
-        sections = output_type.question_sections if output_type else []
+        sections = self._active_sections(output_type)
         has_sections = bool(sections)
 
         self.section_count_container.setVisible(has_sections)

@@ -253,7 +253,28 @@ def check_long_form_protocol(loader: TemplateLoader) -> None:
         assert "스스로 멈추거나 계속할지 묻지 마라" in prompt, f"조기 종료 방지 지시 없음: {label}"
         assert "이하 생략" in prompt, f"뭉개기 금지 지시 없음: {label}"
 
+    # 혼합 문항 형식도 형식별 개수를 쓴다 — 비율 지시와 섞이면 안 된다
+    mixed = PromptRequest(
+        passage="검증용 지문입니다.",
+        example_text="",
+        category="현대시",
+        version="고급형",
+        selected_modules=[],
+        question_count=10,
+        difficulty=loader.difficulty_names("csat")[1],
+        question_style="객관식·단답형·서술형 혼합",
+        set_style="독립 문항형",
+        scoring_scheme="균등 배점",
+        output_type="문학 학습지 전체 (개념 + 해제 + 문항)",
+        section_counts={"mc": 12, "short": 5, "essay": 3},
+    )
+    prompt = builder.build(mixed, None)
+    assert "객관식 12개, 단답형 5개, 서술형 3개" in prompt, "혼합 형식의 형식별 개수가 반영되지 않았습니다."
+    assert "비율로 배분" not in prompt, "형식별 개수와 충돌하는 비율 지시가 남아 있습니다."
+    assert "총 10개의 문항을 작성하라" not in prompt, "혼합 형식인데 전체 문항 수 지시가 남아 있습니다."
+
     print("  분량 프로토콜: 조기 종료·뭉개기 방지 확인, 형식별 문항 수 반영 확인")
+    print("  혼합 문항 형식도 형식별 개수 사용, 비율 지시와 충돌 없음")
 
 
 def check_evaluation(loader: TemplateLoader) -> None:

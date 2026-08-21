@@ -86,6 +86,7 @@ class TemplateLoader:
         self.user_guide_path = config_root() / "user_guide.json"
         self.exam_modes_path = config_root() / "exam_modes.json"
         self.output_types_path = config_root() / "output_types.json"
+        self.question_styles_path = config_root() / "question_styles.json"
 
     def category_names(self) -> list[str]:
         names = list(self.categories.keys())
@@ -410,6 +411,25 @@ class TemplateLoader:
         if not result:
             raise TemplateLoadError("사용 가능한 산출물 유형이 없습니다.")
         return result
+
+    def load_style_sections(self, style_label: str) -> list[QuestionSection]:
+        """Per-format counts for a question style that mixes several formats.
+
+        A single global count cannot express '객관식 6 / 단답형 2 / 서술형 2', so the
+        mix used to be a ratio baked into the prompt. Declaring the formats here
+        lets the user set each count instead.
+        """
+        if not style_label.strip():
+            return []
+        payload = self._read_json(self.question_styles_path, "문항 형식 설정 파일")
+        if payload is None:
+            return []
+        styles = payload.get("styles", {})
+        if not isinstance(styles, dict):
+            raise TemplateLoadError(
+                f"문항 형식 설정 형식이 올바르지 않습니다.\n경로: {self.question_styles_path}"
+            )
+        return self._build_question_sections(styles.get(style_label.strip()))
 
     def _build_question_sections(self, raw: object) -> list[QuestionSection]:
         """Parse the per-format question counts an output type declares."""

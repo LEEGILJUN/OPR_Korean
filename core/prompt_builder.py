@@ -265,7 +265,7 @@ class PromptBuilder:
         lines.append(f"영역: {request.category}")
         lines.append(f"프롬프트 버전: {request.version}")
         if wants_questions:
-            sections = output_type.question_sections if output_type else []
+            sections = self._active_sections(request, output_type)
             if sections:
                 for section in sections:
                     count = self._section_count(request, section)
@@ -426,13 +426,25 @@ class PromptBuilder:
             ],
             "객관식·단답형·서술형 혼합": [
                 "세 형식을 섞어 출제하되, 각 문항이 어떤 형식인지 분명히 드러나게 하라.",
-                "대략 객관식 6 : 단답형 2 : 서술형 2의 비율로 배분하고, 문항 수가 적으면 객관식을 우선하라.",
                 "객관식은 ①~⑤ 형식의 5지선다로 작성하라.",
                 "단답형은 '~를 찾아 쓰시오' 처럼 지문에서 근거를 직접 찾아 적게 하고, 정답 인정 범위를 밝혀라.",
                 "서술형은 모범 답안과 함께 채점 요소를 항목별로 나누어 제시하라.",
             ],
         }
         return mapping.get(question_style, ["문항 형식은 선택 설정에 맞게 작성하라."])
+
+    def _active_sections(self, request: PromptRequest, output_type: OutputType | None):
+        """Which per-format counts apply, if any.
+
+        The output type wins: a 독서 학습지 already names its own formats, so a
+        mixed 문항 형식 must not add a second, conflicting breakdown.
+        """
+        if output_type and output_type.question_sections:
+            return output_type.question_sections
+        try:
+            return self.template_loader.load_style_sections(request.question_style)
+        except Exception:
+            return []
 
     def _question_count_guidance(
         self, request: PromptRequest, output_type: OutputType | None
@@ -444,7 +456,7 @@ class PromptBuilder:
         because it lands at the very end of the prompt it is the instruction the model
         actually follows — so the whole worksheet shrinks to N items.
         """
-        sections = output_type.question_sections if output_type else []
+        sections = self._active_sections(request, output_type)
         if not sections:
             return [f"총 {request.question_count}개의 문항을 작성하라."]
 
@@ -475,7 +487,7 @@ class PromptBuilder:
     def _total_question_count(
         self, request: PromptRequest, output_type: OutputType | None
     ) -> int:
-        sections = output_type.question_sections if output_type else []
+        sections = self._active_sections(request, output_type)
         if not sections:
             return request.question_count
         return sum(self._section_count(request, section) for section in sections)
