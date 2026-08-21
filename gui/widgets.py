@@ -237,3 +237,68 @@ class ModuleCheckboxGroup(QWidget):
     def reset(self) -> None:
         for cb in self.checkboxes.values():
             cb.setChecked(False)
+
+
+# ---------------------------------------------------------------------------
+# Workflow step indicator
+# ---------------------------------------------------------------------------
+class StepIndicator(QWidget):
+    """Show the app's three-stage workflow and which stage the user is on."""
+
+    def __init__(self, steps: list[str], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._badges: list[QLabel] = []
+        self._labels: list[QLabel] = []
+        self._current = 0
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        for index, text in enumerate(steps):
+            if index:
+                arrow = QLabel("›")
+                arrow.setStyleSheet(
+                    f"color: {COLORS['text_hint']}; font-size: 15px;"
+                    f" background: transparent; border: none;"
+                )
+                layout.addWidget(arrow)
+
+            badge = QLabel(str(index + 1))
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setFixedSize(20, 20)
+            self._badges.append(badge)
+            layout.addWidget(badge)
+
+            label = QLabel(text)
+            self._labels.append(label)
+            layout.addWidget(label)
+
+        layout.addStretch(1)
+        self.set_current(0)
+
+    def set_current(self, index: int) -> None:
+        """Highlight one stage; earlier stages read as done, later ones as pending."""
+        self._current = index
+        for position, (badge, label) in enumerate(zip(self._badges, self._labels)):
+            if position == index:
+                badge_bg, badge_fg = COLORS["accent"], COLORS["text_on_accent"]
+                text_color, weight = COLORS["text_primary"], 700
+            elif position < index:
+                badge_bg, badge_fg = COLORS["success"], COLORS["text_on_accent"]
+                text_color, weight = COLORS["text_secondary"], 600
+            else:
+                badge_bg, badge_fg = COLORS["bg_hover"], COLORS["text_hint"]
+                text_color, weight = COLORS["text_hint"], 500
+
+            badge.setStyleSheet(
+                f"background: {badge_bg}; color: {badge_fg}; border: none;"
+                f" border-radius: 10px; font-size: 11px; font-weight: 700;"
+            )
+            label.setStyleSheet(
+                f"color: {text_color}; font-size: 12px; font-weight: {weight};"
+                f" background: transparent; border: none;"
+            )
+
+    def current(self) -> int:
+        return self._current

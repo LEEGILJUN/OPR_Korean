@@ -75,6 +75,7 @@ class TemplateLoader:
         self.question_types_path = config_root() / "question_types.json"
         self.rotation_anchors_path = config_root() / "rotation_anchors.json"
         self.evaluation_criteria_path = config_root() / "evaluation_criteria.json"
+        self.user_guide_path = config_root() / "user_guide.json"
 
     def category_names(self) -> list[str]:
         names = list(self.categories.keys())
@@ -295,6 +296,11 @@ class TemplateLoader:
         raise TemplateLoadError(
             f"검증 모드 '{label}' 을 찾을 수 없습니다.\n사용 가능 항목: {available}"
         )
+
+    def load_user_guide(self) -> dict:
+        """Return the in-app usage guide. Missing file yields an empty guide."""
+        payload = self._read_json(self.user_guide_path, "사용 안내 파일")
+        return payload or {}
 
     def _read_json(self, path: Path, label: str) -> dict | None:
         """Read an optional JSON config. Returns None when the file is absent."""

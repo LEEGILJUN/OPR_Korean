@@ -37,6 +37,7 @@ from core.file_utils import (
     ensure_file_extension,
     save_text_file,
 )
+from core.app_settings import AppSettings
 from core.evaluation_builder import EvaluationBuildError, EvaluationBuilder
 from core.history_store import GenerationHistoryStore, HistoryStoreError
 from core.models import (
@@ -50,10 +51,12 @@ from core.preset_loader import PresetLoadError, PresetLoader, PresetSaveError
 from core.prompt_builder import PromptBuilder
 from core.template_loader import CategorySaveError, TemplateLoadError, TemplateLoader
 
+from .guide_dialog import GuideDialog
 from .styles import build_stylesheet
 from .widgets import (
     CollapsibleSection,
     ModuleCheckboxGroup,
+    StepIndicator,
     ToastNotification,
     block_signals,
     create_help_button,
@@ -119,6 +122,7 @@ class MainWindow(QMainWindow):
         self.prompt_builder = PromptBuilder(self.template_loader)
         self.history_store = GenerationHistoryStore()
         self.evaluation_builder = EvaluationBuilder(self.template_loader)
+        self.app_settings = AppSettings()
         self.presets_by_label: dict[str, PromptPreset] = {}
         self.preset_load_error_message: str = ""
         self.evaluation_load_error_message: str = ""
@@ -130,6 +134,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._setup_shortcuts()
+        QTimer.singleShot(0, self._maybe_show_guide_on_startup)
 
     # ===================================================================
     # UI CONSTRUCTION
@@ -229,6 +234,12 @@ class MainWindow(QMainWindow):
         self.preset_description_label.setMaximumWidth(400)
         self.preset_description_label.setWordWrap(True)
         layout.addWidget(self.preset_description_label)
+
+        self.guide_button = QPushButton("사용 방법")
+        self.guide_button.setObjectName("secondaryButton")
+        self.guide_button.setToolTip("이 앱을 쓰는 순서와 자주 묻는 질문을 봅니다.  (F1)")
+        self.guide_button.clicked.connect(lambda: self.show_user_guide())
+        layout.addWidget(self.guide_button)
 
         return frame
 
@@ -383,22 +394,40 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
-        # Vertical splitter: input on top, output on bottom
+        # Workflow stages, so the copy-paste round trip is visible up front.
+        self.step_indicator = StepIndicator(
+            ["지문 · 설정 입력", "프롬프트 생성 → LLM에 붙여넣기", "결과 되붙여넣고 검증"]
+        )
+        layout.addWidget(self.step_indicator)
+
+        # Vertical splitter: input / output / verification
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(6)
         splitter.setChildrenCollapsible(False)
 
         splitter.addWidget(self._build_input_area())
         splitter.addWidget(self._build_output_area())
+        splitter.addWidget(self._build_evaluation_card())
 
-        splitter.setStretchFactor(0, 5)
+        splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 5)
-        splitter.setSizes([450, 400])
+        splitter.setStretchFactor(2, 0)
+        splitter.setSizes([380, 400, 90])
 
         layout.addWidget(splitter, 1)
         return panel
+
+    def _build_evaluation_card(self) -> QWidget:
+        """Verification is its own workflow stage, not a passage input field."""
+        card = QFrame()
+        card.setObjectName("sectionCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 12, 18, 14)
+        layout.setSpacing(8)
+        layout.addWidget(self._build_evaluation_section())
+        return card
 
     def _build_input_area(self) -> QWidget:
         card = QFrame()
@@ -458,8 +487,6 @@ class MainWindow(QMainWindow):
         self.example_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.example_edit.textChanged.connect(self._schedule_preview_update)
         layout.addWidget(self.example_edit)
-
-        layout.addWidget(self._build_evaluation_section())
 
         return card
 
@@ -626,6 +653,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+S"), self, lambda: self.save_output("txt"))
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, lambda: self.save_output("md"))
         QShortcut(QKeySequence("Ctrl+R"), self, self._confirm_reset)
+        QShortcut(QKeySequence("F1"), self, self.show_user_guide)
 
     # ===================================================================
     # ACTIONS
@@ -660,6 +688,7 @@ class MainWindow(QMainWindow):
         self.output_edit.setPlainText(final_prompt)
         self.output_title_label.setText("생성 결과")
         self.output_kind = "prompt"
+        self._set_workflow_step(1)
         self.last_generated_request = request
         self.last_generated_prompt = final_prompt
         self.last_variation_plan = variation
@@ -668,6 +697,36 @@ class MainWindow(QMainWindow):
         self._toast(self._variation_toast_message(variation), "success")
         self.statusBar().showMessage(self._variation_status_message(variation))
         self._refresh_round_indicator()
+
+    def show_user_guide(self, *, first_run: bool = False) -> None:
+        """Open the usage walkthrough."""
+        try:
+            guide = self.template_loader.load_user_guide()
+        except TemplateLoadError as exc:
+            QMessageBox.warning(self, "사용 안내를 불러올 수 없습니다", str(exc))
+            return
+        if not guide:
+            QMessageBox.information(
+                self,
+                "사용 안내 없음",
+                "사용 안내 파일을 찾을 수 없습니다.\nconfig/user_guide.json 을 확인해 주세요.",
+            )
+            return
+
+        dialog = GuideDialog(guide, self, show_dismiss=first_run)
+        dialog.exec()
+        if first_run and dialog.dismissed_forever():
+            self.app_settings.set("guide_seen", True)
+
+    def _maybe_show_guide_on_startup(self) -> None:
+        """Show the walkthrough the first time this user opens the app."""
+        if self.app_settings.get("guide_seen"):
+            return
+        self.show_user_guide(first_run=True)
+
+    def _set_workflow_step(self, index: int) -> None:
+        if hasattr(self, "step_indicator"):
+            self.step_indicator.set_current(index)
 
     def build_evaluation_prompt(self) -> None:
         """Turn pasted-back questions into a prompt that checks them."""
@@ -715,6 +774,7 @@ class MainWindow(QMainWindow):
 
         self.output_edit.setPlainText(evaluation_prompt)
         self.output_title_label.setText("검증 프롬프트")
+        self._set_workflow_step(2)
         self.last_generated_prompt = evaluation_prompt
         self.output_kind = "evaluation"
         self._set_output_buttons_enabled(True)
@@ -1264,6 +1324,7 @@ class MainWindow(QMainWindow):
         self.last_variation_plan = None
         self.output_kind = "prompt"
         self.output_title_label.setText("생성 결과")
+        self._set_workflow_step(0)
         self.token_label.setText("")
         self._set_output_buttons_enabled(False)
 
