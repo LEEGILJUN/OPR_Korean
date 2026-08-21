@@ -117,6 +117,7 @@ csat_prompt_generator/
 ├─ README.md
 ├─ CLAUDE.md
 ├─ CSATPromptGenerator.spec
+├─ build_windows.bat        # 윈도우에서 더블클릭하면 배포본 생성
 ├─ config/
 │  ├─ presets.json
 │  ├─ difficulty_profiles.json
@@ -406,21 +407,15 @@ macOS 전용 바이너리이므로 윈도우에서 실행되지 않습니다. �
 
 윈도우 PC가 없어도 GitHub에서 자동으로 빌드할 수 있습니다.
 
-### 방법 1. GitHub Actions (윈도우 PC 불필요, 권장)
+### 방법 1. 윈도우 PC에서 스크립트 실행 (권장)
 
-1. GitHub 저장소 → `Actions` 탭 → 왼쪽에서 `Windows 빌드` 선택
-2. 오른쪽 `Run workflow` 버튼 클릭
-3. 5분쯤 뒤 완료되면 실행 기록을 열고 아래 `Artifacts`에서
-   `CSATPromptGenerator-windows` 를 내려받습니다
-4. 압축을 풀면 나오는 `CSATPromptGenerator` 폴더를 **통째로** USB에 담습니다
+윈도우 PC에 이 저장소를 내려받고 `build_windows.bat` 를 **더블클릭**하면 끝납니다.
+파이썬만 설치되어 있으면 가상환경 생성, 패키지 설치, 동작 확인, 빌드까지 자동으로 합니다.
 
-`v1.0` 같은 태그를 밀어도 자동으로 빌드됩니다.
+파이썬이 없다면 [python.org](https://www.python.org/downloads/)에서 설치하고,
+설치 화면에서 **`Add python.exe to PATH`** 를 반드시 체크하세요.
 
-```bash
-git tag v1.0 && git push origin v1.0
-```
-
-### 방법 2. 윈도우 PC에서 직접 빌드
+터미널로 직접 하려면 PowerShell에서:
 
 ```powershell
 python -m venv .venv
@@ -429,7 +424,13 @@ pip install -r requirements.txt pyinstaller
 pyinstaller --noconfirm CSATPromptGenerator.spec
 ```
 
-`dist\CSATPromptGenerator\` 폴더가 배포본입니다.
+둘 다 결과는 `dist\CSATPromptGenerator\` 폴더입니다.
+
+### 방법 2. GitHub Actions (반복 배포할 때)
+
+저장소에 `.github/workflows/build-windows.yml` 이 있으면 `Actions` 탭에서
+`Run workflow` 로 빌드하고 결과를 내려받을 수 있습니다. 배포본을 자주 만들 때만
+쓰면 되고, 한 번 만들어 전달할 목적이라면 방법 1이 더 빠릅니다.
 
 ### USB로 전달할 때 알아 둘 것
 
