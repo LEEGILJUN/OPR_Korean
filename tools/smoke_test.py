@@ -196,6 +196,50 @@ def check_output_types(loader: TemplateLoader) -> None:
     print("  해설 배치 2종(문항 뒤 / 맨 뒤) 모두 충돌 없이 반영")
 
 
+def check_long_form_protocol(loader: TemplateLoader) -> None:
+    """Long outputs must not carry instructions that make the model stop early.
+
+    The worksheet types ask for 60~70 items across several sections. Two things
+    used to cut that short: a trailing "총 N개의 문항을 작성하라" that contradicted
+    the per-section counts, and an explicit permission to stop and ask. Both are
+    cheap for the model to obey and expensive for the user.
+    """
+    builder = PromptBuilder(loader)
+    for output_type in loader.load_output_types():
+        if not output_type.count_applies_to:
+            continue
+        request = PromptRequest(
+            passage="검증용 지문입니다.",
+            example_text="",
+            category="독서",
+            version="고급형",
+            selected_modules=[],
+            question_count=15,
+            difficulty=loader.difficulty_names("csat")[1],
+            question_style="객관식 5지선다",
+            set_style="지문 세트형(수능형)",
+            scoring_scheme="수능형 2점·3점 혼합",
+            output_type=output_type.label,
+        )
+        prompt = builder.build(request, builder.plan_variation(request, []))
+        label = output_type.label
+
+        assert "총 15개의 문항을 작성하라" not in prompt, (
+            f"형식별 개수를 정하는 유형인데 전체 문항 수 지시가 남아 있습니다: {label}"
+        )
+        assert f"{output_type.count_applies_to} 문항은 15개 작성하라" in prompt, (
+            f"문항 수 적용 범위가 프롬프트에 드러나지 않습니다: {label}"
+        )
+        for stale in ("작성할까요", "물은 뒤 계속하라"):
+            assert stale not in prompt, (
+                f"모델이 스스로 멈추게 만드는 옛 지시가 남아 있습니다: {label} / {stale}"
+            )
+        assert "스스로 멈추거나 계속할지 묻지 마라" in prompt, f"조기 종료 방지 지시 없음: {label}"
+        assert "이하 생략" in prompt, f"뭉개기 금지 지시 없음: {label}"
+
+    print("  분량 프로토콜: 조기 종료·뭉개기 방지 지시 확인, 문항 수 모순 없음")
+
+
 def check_evaluation(loader: TemplateLoader) -> None:
     """Blind mode must not leak the answer key; other modes must keep it."""
     builder = EvaluationBuilder(loader)
@@ -275,6 +319,7 @@ def main() -> int:
     check_variation(loader)
     print("[5/7] 산출물 유형 · 시험 모드")
     check_output_types(loader)
+    check_long_form_protocol(loader)
     print("[6/7] 생성 결과 검증 (정답 제거 + 검증 프롬프트)")
     check_evaluation(loader)
     print("[7/7] GUI 생성 (offscreen)")
