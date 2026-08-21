@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
         "exam_mode": "무엇을 대비하는 자료인지 고릅니다. 수능·모의고사는 1~9등급 축을, 중·고 내신은 기초~최고난도 축을 사용하고 교과 연계 입력란이 열립니다.",
         "output_type": "만들 자료의 형태를 고릅니다. 문항만 만들지, 개념 정리와 작품 해제까지 포함한 학습지를 만들지, 해제만 만들지에 따라 프롬프트가 통째로 달라집니다.",
         "curriculum": "교과서 출판사, 학년, 단원명을 적으면 그 단원의 학습 목표에 맞춰 설계합니다. 예: [비상] 국어2 Ⅰ. 나, 너, 우리가 만나는 길 (1) 문학의 해석과 생활화",
-        "category": "출제할 수능 국어 영역 또는 사용자 정의 유형을 고릅니다. 선택한 유형에 따라 분석 지시와 문항 설계 기준이 달라집니다.",
+        "category": "출제할 수능 국어 영역 또는 사용자 정의 유형을 고릅니다. 선택한 영역에 따라 분석 지시와 문항 설계 기준이 달라지고, 아래 산출물 유형 목록도 그 영역에 맞는 것만 보이도록 바뀝니다.",
         "version": "프롬프트의 설계 강도를 고릅니다. 기본형은 간결하고, 고급형은 구조화가 강화되며, Ultimate형은 해석 통제와 자기 점검까지 더 강하게 요구합니다.",
         "difficulty": "수능 상대평가 등급 목표를 고릅니다. 1등급은 최상위권 변별용, 9등급은 기초 확인용입니다.",
         "question_count": "한 번에 생성할 문항 수입니다.",
@@ -329,6 +329,11 @@ class MainWindow(QMainWindow):
             self.setup_load_error_message = str(exc)
         self.output_type_combo.currentTextChanged.connect(self._on_output_type_changed)
         pl.addWidget(self.output_type_combo)
+
+        self.output_type_scope_label = QLabel("")
+        self.output_type_scope_label.setObjectName("sectionHint")
+        self.output_type_scope_label.setWordWrap(True)
+        pl.addWidget(self.output_type_scope_label)
 
         self.output_type_description_label = QLabel("")
         self.output_type_description_label.setObjectName("sectionHint")
@@ -1119,10 +1124,22 @@ class MainWindow(QMainWindow):
             index = self.output_type_combo.findText(previous)
             self.output_type_combo.setCurrentIndex(index if index >= 0 else 0)
 
+        # Say why the list is short — otherwise a filtered-out type reads as
+        # a feature that vanished.
+        category = self.category_combo.currentText()
+        total = len(self.template_loader.output_type_labels())
+        if len(labels) < total:
+            self.output_type_scope_label.setText(
+                f"'{category}'에 맞는 {len(labels)}종만 보입니다. (전체 {total}종)"
+                " 출제 영역을 바꾸면 목록도 바뀝니다."
+            )
+        else:
+            self.output_type_scope_label.setText("")
+
         if self.output_type_combo.currentText() != previous:
             # The previous choice does not apply to this area any more.
             self._toast(
-                f"'{self.category_combo.currentText()}'에 맞는 산출물 유형으로 바꿨습니다.", "info"
+                f"'{category}'에 맞는 산출물 유형으로 바꿨습니다.", "info"
             )
         self._on_output_type_changed(self.output_type_combo.currentText())
 
