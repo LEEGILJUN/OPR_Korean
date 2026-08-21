@@ -113,8 +113,15 @@ GUI 도움말 문구도 `MainWindow.FIELD_HELP_TEXTS` / `MODULE_HELP_TEXTS` / `V
 
 - **평가 맥락**(`ExamMode`) — `csat`는 1~9등급 축, `school`은 내신 기초~최고난도 축을 쓰고
   교과 연계 입력란이 열린다. `difficulty_names(mode_id)`가 축을 갈라 준다.
-- **산출물 유형**(`OutputType`) — 문항 세트 / 학습지 전체 / 작품 해제만 / 문법 개념 정리표 /
-  미니 모의고사. `structure`와 `instructions`가 "산출물 구성" 섹션이 된다.
+- **산출물 유형**(`OutputType`) — 문항 세트 / 문학 학습지 / 문학 작품 해제 / 문법 개념 정리표 /
+  미니 모의고사 / 독서 학습지 · 독서 지문 분석 · 독서 확인 문제.
+  `structure`와 `instructions`가 "산출물 구성" 섹션이 된다.
+
+각 유형은 `categories`로 어울리는 출제 영역을 선언한다. 빈 배열이면 공용이고,
+GUI는 선택된 영역에 맞는 유형만 보여 준다(`output_type_labels(category)`).
+문학 학습지는 갈래·성격·시어 의미표를 요구하므로 비문학 지문에 걸리면 쓸모없는
+결과가 나온다 — 경고 대신 애초에 고를 수 없게 막는다. 사용자 정의 영역은 어디에
+속하는지 알 수 없으므로 전부 보여 준다.
 
 `includes_questions: false`인 유형(작품 해제만)은 문항 관련 섹션이 **통째로 빠진다** —
 문항 유형 배분, 추가 모듈, 문항 중심 출력 지시가 모두 제외되고, `common.txt` 대신

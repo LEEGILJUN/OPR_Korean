@@ -195,7 +195,7 @@ class MainWindow(QMainWindow):
 
         self._apply_appearance()
         self._on_exam_mode_changed(self.exam_mode_combo.currentText())
-        self._on_output_type_changed(self.output_type_combo.currentText())
+        self._reload_output_types()
 
     # -------------------------------------------------------------------
     # Toolbar (preset bar at top)
@@ -885,7 +885,7 @@ class MainWindow(QMainWindow):
         self.app_settings.set("theme", theme)
         self._apply_appearance()
         self._on_exam_mode_changed(self.exam_mode_combo.currentText())
-        self._on_output_type_changed(self.output_type_combo.currentText())
+        self._reload_output_types()
         self._toast("어두운 화면으로 바꿨습니다." if theme == "dark" else "밝은 화면으로 바꿨습니다.", "info")
 
     def adjust_font_scale(self, delta: int) -> None:
@@ -896,7 +896,7 @@ class MainWindow(QMainWindow):
         self.app_settings.set("font_scale", new_scale)
         self._apply_appearance()
         self._on_exam_mode_changed(self.exam_mode_combo.currentText())
-        self._on_output_type_changed(self.output_type_combo.currentText())
+        self._reload_output_types()
         self._toast(f"글자 크기 {new_scale}%", "info")
 
     # -------------------------------------------------------------------
@@ -1098,6 +1098,33 @@ class MainWindow(QMainWindow):
         self.curriculum_edit.setVisible(wants_context)
         if wants_context and mode.context_help:
             self.curriculum_edit.setToolTip(mode.context_help)
+
+    def _reload_output_types(self) -> None:
+        """Offer only the output types that suit the selected exam area.
+
+        A 문학 학습지 asks for 갈래·성격·시어 의미표 — on a 비문학 지문that produces
+        nonsense, so the mismatch is prevented rather than warned about.
+        """
+        if not hasattr(self, "output_type_combo"):
+            return
+        try:
+            labels = self.template_loader.output_type_labels(self.category_combo.currentText())
+        except TemplateLoadError:
+            return
+
+        previous = self.output_type_combo.currentText()
+        with block_signals(self.output_type_combo):
+            self.output_type_combo.clear()
+            self.output_type_combo.addItems(labels)
+            index = self.output_type_combo.findText(previous)
+            self.output_type_combo.setCurrentIndex(index if index >= 0 else 0)
+
+        if self.output_type_combo.currentText() != previous:
+            # The previous choice does not apply to this area any more.
+            self._toast(
+                f"'{self.category_combo.currentText()}'에 맞는 산출물 유형으로 바꿨습니다.", "info"
+            )
+        self._on_output_type_changed(self.output_type_combo.currentText())
 
     def _on_output_type_changed(self, type_label: str) -> None:
         """Grey out question settings for outputs that contain no questions."""
@@ -1621,6 +1648,7 @@ class MainWindow(QMainWindow):
     def _update_category_actions(self, category_name: str) -> None:
         self._refresh_round_indicator()
         self._reload_question_types()
+        self._reload_output_types()
         is_user = self.template_loader.is_user_category(category_name.strip())
         self.delete_category_button.setEnabled(is_user)
 

@@ -397,14 +397,38 @@ class TemplateLoader:
                     needs_passage=bool(item.get("needs_passage", True)),
                     structure=[str(line).strip() for line in structure if str(line).strip()],
                     instructions=[str(line).strip() for line in instructions if str(line).strip()],
+                    categories=[
+                        str(name).strip()
+                        for name in (item.get("categories") or [])
+                        if str(name).strip()
+                    ],
                 )
             )
         if not result:
             raise TemplateLoadError("사용 가능한 산출물 유형이 없습니다.")
         return result
 
-    def output_type_labels(self) -> list[str]:
-        return [output.label for output in self.load_output_types()]
+    def output_type_labels(self, category: str | None = None) -> list[str]:
+        """Return output type labels, optionally limited to one exam area.
+
+        A type that declares no categories is universal. A user-defined category
+        matches nothing, so everything is offered rather than nothing.
+        """
+        types = self.load_output_types()
+        if not category:
+            return [output.label for output in types]
+
+        scoped = [
+            output.label
+            for output in types
+            if not output.categories or category in output.categories
+        ]
+        specific = [output for output in types if output.categories]
+        known = {name for output in specific for name in output.categories}
+        if category not in known:
+            # Unknown (user-defined) area: offer everything instead of hiding.
+            return [output.label for output in types]
+        return scoped
 
     def load_output_type(self, label: str) -> OutputType:
         for output in self.load_output_types():

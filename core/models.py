@@ -156,3 +156,4 @@ class OutputType:
     needs_passage: bool
     structure: list[str]
     instructions: list[str]
+    categories: list[str]  # 비어 있으면 모든 출제 영역에서 사용 가능
