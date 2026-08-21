@@ -410,7 +410,7 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(self._make_field_label("문항 수", self.FIELD_HELP_TEXTS["question_count"]), 0, 0)
         self.question_count_spin = QSpinBox()
-        self.question_count_spin.setRange(1, 40)
+        self.question_count_spin.setRange(1, 80)
         self.question_count_spin.setValue(1)
         self.question_count_spin.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.question_count_spin.setToolTip(self.FIELD_HELP_TEXTS["question_count"])
@@ -422,6 +422,7 @@ class MainWindow(QMainWindow):
         self.question_style_combo.addItems([
             "객관식 5지선다", "객관식 4지선다", "객관식 3지선다",
             "단답형", "서술형", "객관식·단답형·서술형 혼합",
+            "빈칸 채우기", "OX 진위 판단",
         ])
         self.question_style_combo.setToolTip(self.FIELD_HELP_TEXTS["question_style"])
         grid.addWidget(self.question_style_combo, 1, 1)
